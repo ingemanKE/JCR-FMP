@@ -1,0 +1,2 @@
+load("/Users/kurtingeman/github/JCR-FMP/Data/Raw/site/priorityspp.size.meancount.site.strataN2.rds")
+load("/Users/kurtingeman/github/JCR-FMP/Data/Raw/site/priorityspp.size.meancount.site.consiststrata.rds")

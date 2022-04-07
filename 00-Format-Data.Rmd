@@ -1,0 +1,813 @@
+##### LOAD NCRMP FISH DATA --> USUAL DATA CLEANING AND PREP
+##LOAD PACKAGES, FUNCTIONS, AND DATA
+```{r message = FALSE, warning = FALSE}
+rm(list=ls())
+library(tidyverse)
+library(gdata)             # needed for drop_levels()
+library(reshape)           # reshape library inclues the cast() function used below
+
+#LOAD LIBRARY FUNCTIONS 
+source("C:/Users/Tye.Kindinger/Desktop/FISH TEAM/fish-paste-master/lib/core_functions.R")
+source("C:/Users/Tye.Kindinger/Desktop/FISH TEAM/fish-paste-master/lib/fish_team_functions.R")
+source("C:/Users/Tye.Kindinger/Desktop/FISH TEAM/fish-paste-master/lib/Islandwide Mean_Variance Functions.R")
+
+# get strata and sectors data (NOTE: the data in the raw file should be checked and updated)
+sectors<-read.csv("C:/Users/Tye.Kindinger/Desktop/FISH TEAM/fish-paste-master/data/Sectors-Strata-Areas.csv", stringsAsFactors=FALSE)
+# load site master to merge with sector names
+sm<-read.csv("C:/Users/Tye.Kindinger/Desktop/FISH TEAM/fish-paste-master/data/SURVEY MASTER.csv")
+#sm$SITE<-SiteNumLeadingZeros(sm$SITE)
+
+#load fish data
+load("C:/Users/Tye.Kindinger/Desktop/FISH TEAM/fish-paste-master/data/ALL_REA_FISH_RAW.rdata")
+x<-df
+```
+
+## CLEAN DATASET
+```{r message = FALSE, warning = FALSE}
+#keep only columns we currently use
+DATA_COLS<-c("SITEVISITID", "METHOD", "DATE_", "OBS_YEAR",  "SITE", "REEF_ZONE",  "DEPTH_BIN",  "ISLAND", "LATITUDE",  "LONGITUDE",  "REGION" , "REGION_NAME", "SECTOR", "SPECIAL_AREA", "EXCLUDE_FLAG", "TRAINING_YN",
+"REP",  "REPLICATEID", "DIVER", "HABITAT_CODE", "DEPTH", 
+"HARD_CORAL", "MA",  "TA",  "CCA",  "SAND",  "SOFT_CORAL", "CLAM" , "SPONGE", "CORALLIMORPH", "CYANO", "TUNICATE", "ZOANTHID" , "OTHER", "OTHER_TYPE", 
+"SPECIES", "COUNT", "SIZE_", "OBS_TYPE", 
+"COMPLEXITY", "SUBSTRATE_HEIGHT_0", "SUBSTRATE_HEIGHT_20", "SUBSTRATE_HEIGHT_50", "SUBSTRATE_HEIGHT_100", "SUBSTRATE_HEIGHT_150", "MAX_HEIGHT", "VISIBILITY",
+"SCIENTIFIC_NAME",  "TAXONNAME", "COMMONNAME", "GENUS", "FAMILY" , "COMMONFAMILYALL", "LMAX", "LW_A",  "LW_B",  "LENGTH_CONVERSION_FACTOR", "TROPHIC", "TROPHIC_MONREP")
+x<-x[,DATA_COLS]
+
+#update SITE to have three numeric digits (eg OAH-01 becomes OAH-001)
+x$SITE<-SiteNumLeadingZeros(x$SITE)
+
+## TLK: NEW!!! FIX MISSING REP FOR 1 SITE IN SAIPAN (doesn't get included as NA)
+x <- x %>% mutate_at(vars(REP), ~as.character(.)) %>% mutate(REP = ifelse(is.na(REP) & SITEVISITID == 11181, "B", REP)) %>% mutate_at(vars(REP), ~as.factor(.))
+
+#remove data from certain types of surveys 
+x[is.na(x$TRAINING_YN),]$TRAINING_YN<-FALSE   #change NAs to FALSE --> none of the older data was 'training data'
+x<-subset(x, x$TRAINING_YN==FALSE) #drop data from training surveys
+x<-subset(x, x$EXCLUDE_FLAG==0, drop=TRUE) #drop data flagged as needed to be excluded
+x<-subset(x, x$METHOD %in% c("nSPC", "nSPC-CCR"), drop=TRUE) #only keep nSPC surveys
+#x<-subset(x, x$OBS_YEAR >2008, drop=TRUE) #can subset by survey years
+
+#subset data from different periods of SPC surveys
+x<-subset(x, x$OBS_TYPE %in% c("U","I","N", "F", "T", "P"))  #as written, this includes all the data (all categories) --> **FILTER data types in next script (02_gitFishREACalcWD)
+#I = instantaneous; N = non-instantaneous; F = new species seen during 5-10 min window of survey; T = new species seen during 10-30 min window of survey; P = presence (outside cylinder, species of interest)
+
+#add SURVEY MASTER information to dataset  
+x<-merge(x, sm[,c("SITEVISITID", "SEC_NAME", "ANALYSIS_YEAR", "ANALYSIS_SCHEME")], by=c("SITEVISITID"), all.x=TRUE)
+
+#CHECK THAT all ANALYSIS_SCHEMES are present in the site_master file)
+idw<-x[is.na(x$ANALYSIS_SCHEME)  & x$METHOD=="nSPC", c("REGION", "SITE","OBS_YEAR", "METHOD"),]
+if(dim(idw)[1]>0) {cat("nSPC sites with MISSING ANALYSIS_SCHEME")}   # should be 0
+
+#where there is substrate_height data, calculate avg height and ave_height_variability to standardize complexity metrics (mean height, mean height variability, max height)
+#potentially useful metrics to include as potential covariates, but likely only reflect lg contrasts (e.g. flat vs. very complex) rather than a range with subtle differences
+sh_out<-CalcMeanSHMeanSHDiff(x)
+x$MEAN_SH<-sh_out[[1]]
+x$SD_SH_DIFF<-sh_out[[3]]
+x<-x[, setdiff(names(x),c("SUBSTRATE_HEIGHT_0", "SUBSTRATE_HEIGHT_20", "SUBSTRATE_HEIGHT_50", "SUBSTRATE_HEIGHT_100", "SUBSTRATE_HEIGHT_150"))] #remove SUBSTRATE_HEIGHT fields
+
+x<-droplevels(x) #drop unused levels
+
+#convert COMPLEXITY to a numeric field: used to rate coral rugosity/complexity on 1-6 scale; complexity only used 1-2 years before switching to substrate_height method above
+# *NOTE: SUBSTRATE_HEIGHT and COMPLEXITY are not directly comparable --> there are calibration coeffs. in supplement of 2015 PlosOne paper (human pop'n vs. fish), but easiest to just use data starting in 2012 (all SUBSTRATE_HEIGHT method)
+x$COMPLEXITY<-as.vector(toupper(x$COMPLEXITY))
+x[is.na(x$COMPLEXITY),"COMPLEXITY"]<-"UNKNOWN"
+COMPLEXITY_VALUES<-toupper(c("Low", "Med-Low", "Med", "Med-Hi", "Hi", "Very-Hi"))
+x$ComplexityValue<-NaN
+for (i in 1:length(COMPLEXITY_VALUES)){
+	if(COMPLEXITY_VALUES[i] %in% x$COMPLEXITY){
+		x[x$COMPLEXITY==COMPLEXITY_VALUES[i],]$ComplexityValue<-i
+	}
+}
+
+
+#####CLEAN UP NAs
+tmp.lev<-levels(x$HABITAT_CODE); head(tmp.lev)
+levels(x$HABITAT_CODE)<-c(tmp.lev, "UNKNOWN")
+tmp.lev<-levels(x$SCIENTIFIC_NAME); head(tmp.lev)
+levels(x$SCIENTIFIC_NAME)<-c(tmp.lev, "UNKNOWN")
+tmp.lev<-levels(x$COMMONNAME); head(tmp.lev)
+levels(x$COMMONNAME)<-c(tmp.lev, "UNKNOWN")
+tmp.lev<-levels(x$GENUS); head(tmp.lev)
+levels(x$GENUS)<-c(tmp.lev, "UNKNOWN")
+tmp.lev<-levels(x$FAMILY); head(tmp.lev)
+levels(x$FAMILY)<-c(tmp.lev, "UNKNOWN")
+tmp.lev<-levels(x$COMMONFAMILYALL); head(tmp.lev)
+levels(x$COMMONFAMILYALL)<-c(tmp.lev, "UNKNOWN")
+tmp.lev<-levels(x$TROPHIC_MONREP); head(tmp.lev)
+levels(x$TROPHIC_MONREP)<-c(tmp.lev, "UNKNOWN")
+
+x[is.na(x$HABITAT_CODE),"HABITAT_CODE"]<-"UNKNOWN"
+x[is.na(x$SCIENTIFIC_NAME),"SCIENTIFIC_NAME"]<-"UNKNOWN"
+x[is.na(x$COMMONNAME),"COMMONNAME"]<-"UNKNOWN"
+x[is.na(x$GENUS),"GENUS"]<-"UNKNOWN"
+x[is.na(x$FAMILY),"FAMILY"]<-"UNKNOWN"
+x[is.na(x$COMMONFAMILYALL),"COMMONFAMILYALL"]<-"UNKNOWN"
+x[is.na(x$TROPHIC_MONREP),"TROPHIC_MONREP"]<-"UNKNOWN"
+
+x[is.na(x$COUNT),]$COUNT<-0
+x[is.na(x$SIZE_),]$SIZE_<-0
+#x[is.na(x$LMAX),]$LMAX<-999
+```
+
+## ADDITIONAL TWEAKS TO DATASET
+```{r message = FALSE, warning = FALSE}
+##Separate out the North and South Marianas (i.e., subregions of interest that are not similar to each other) 
+#regional level
+levels(x$REGION)<-c(levels(x$REGION), "S.MARIAN", "N.MARIAN")
+x[x$ISLAND %in% c("Guam", "Rota", "Aguijan", "Tinian", "Saipan"),]$REGION<-"S.MARIAN"
+x[x$ISLAND %in% c("Alamagan","Guguan","Sarigan","Pagan", "Agrihan", "Asuncion", "Maug", "Farallon de Pajaros"),]$REGION<-"N.MARIAN"
+
+#sector level
+sectors[sectors$ISLAND %in% c("Guam", "Rota", "Aguijan", "Tinian", "Saipan"),]$REGION<-"S.MARIAN"
+sectors[sectors$ISLAND %in% c("Alamagan","Guguan","Sarigan","Pagan", "Agrihan", "Asuncion", "Maug", "Farallon de Pajaros"),]$REGION<-"N.MARIAN"
+sectors<-droplevels(sectors) #drop unused levels
+save(sectors, file="TMPsectors.Rdata")  # save cleaned up sectors file
+
+##Set NAs in visibility to -999 (earlier surveys didn't measure visibility); *NOTE: NWHI 2012 has visibility of only NA
+unique(x[is.na(x$VISIBILITY),c("REGION", "OBS_YEAR")])
+x[is.na(x$VISIBILITY),]$VISIBILITY<- -999
+#x[x$VISIBILITY>30,]$VISIBILITY<- 30
+
+##Fix unknown lat/longs from sites surveyed by Val Brown in Guam in 2015. Values we are assigning here are probably about right, but technically we don't know for sure (don't want it to become permanent in Oracle Database -- adjust in script only)
+x[x$SITE=="GUA-01310",]$LATITUDE<-13.24173
+x[x$SITE=="GUA-01310",]$LONGITUDE<-144.70428
+
+x<-droplevels(x) #drop unused levels
+```
+
+## CLEAN UP BENTHIC DATA (% cover estimates during SPC surveys [NOT benthic team surveys])
+```{r message = FALSE, warning = FALSE}
+#NOTE: benthos do not always add up to 100% or observations were not entered at all; Oracle Database now has a QC check for this during data entry.
+#fix for this issue is below, but probably best to make permanent fixes in the Oracle Database: replace NAs with data from the dive buddy that did enter benthic observations
+
+BENTHIC_FIELDS<-c("HARD_CORAL", "SOFT_CORAL", "MA", "CCA", "TA", "SAND", "CYANO", "CLAM", "CORALLIMORPH", "ZOANTHID", "TUNICATE", "SPONGE", "OTHER")
+UNIQUE_ROUND<-c("REGION", "OBS_YEAR", "METHOD")
+round_table<-Aggregate_InputTable(x, UNIQUE_ROUND)
+
+x$countBD<-apply(x[,BENTHIC_FIELDS], 1, function(xx) length(which(!is.na(xx))))  #IDW 10-22-2013 checking for situation where there is NO benthic data at all
+for(i in 1:dim(round_table)[1])
+{
+	if(round_table[i,"METHOD"] %in% c("nSPC", "nSPC-CCR"))
+	{
+		tmp_data<-x[x$OBS_YEAR==round_table[i,"OBS_YEAR"] & x$METHOD==round_table[i,"METHOD"] & x$REGION==round_table[i,"REGION"],]
+
+		#go through BENTHIC_FIELDS, checking whether there are some NAs and some data values
+		for(j in 1:length(BENTHIC_FIELDS))
+		{
+			## IF there are both NAs and data
+			if(length(tmp_data[!is.na(tmp_data[,BENTHIC_FIELDS[j]]),BENTHIC_FIELDS[j]]) > 0 
+			        & length(tmp_data[is.na(tmp_data[,BENTHIC_FIELDS[j]]),BENTHIC_FIELDS[j]]) > 0) 
+			{
+				#set all NAs of that field to 0
+				tmp_data[is.na(tmp_data[,BENTHIC_FIELDS[j]]),BENTHIC_FIELDS[j]]<-0	
+
+				#now rewrite the benthic fields with NAs converted to zeros
+				x[x$OBS_YEAR==round_table[i,"OBS_YEAR"] & x$METHOD==round_table[i,"METHOD"] & x$REGION==round_table[i,"REGION"],BENTHIC_FIELDS[j]]<-tmp_data[,BENTHIC_FIELDS[j]]
+			}
+		}
+	}
+}
+# now reset zeros to NAs for all records where there was NO benthic data at all (otherwise, use dive buddy's data that was entered if other buddy didn't have any data)
+x[x$countBD==0,BENTHIC_FIELDS]<-NA
+
+wd<-droplevels(x) #drop unused levels
+```
+
+## FINAL CLEANING OF DATASET
+```{r message = FALSE, warning = FALSE}
+##FILTER DATA TYPES: I = instantaneous; N = non-instantaneous; F = new species seen during 5-10 min window of survey; T = new species seen during 10-30 min window of survey; P = presence (outside cylinder, species of interest)
+
+#Historical info about SPC design/data types: 
+#Initially, didn't record I vs. N, so all observations were labelled as U = unidentified; **pool U, I, N data for abundance/biomass calcs! 
+#In late 2012, started recording F and T in an effort to record more piscivores and lg. parrots **haphazardly/opportunistically done up until ~2017, so DON'T use prior to recent surveys
+# (as of 2019, have only used F and T data in recent rebreather comparison study)
+#P = binary presence/absence data: don't include in abundance/biomass calcs; have used P data for specific species of interest (e.g. humpheads, sharks, etc.) for stock assessments (Mark Nadon)
+
+wd[!wd$OBS_TYPE %in% c("U", "I", "N"), ]$COUNT<-0  #turn all other unwanted data types to 0, so indiv. site isn't dropped altogether if other types of observations were collected there
+
+##FILTER SURVEY METHOD: 
+wd<-subset(wd, wd$METHOD %in% c("nSPC")) #keep nSPC method only
+wd<-droplevels(wd) #drop unused levels
+
+##DEFINE SURVEY IDENTIFIERS 
+UNIQUE_SURVEY<-c("SITEVISITID","METHOD")
+UNIQUE_REP<-c(UNIQUE_SURVEY, "REP")
+UNIQUE_COUNT<-c(UNIQUE_REP, "REPLICATEID")
+
+##ASSIGN/CALCULATE SURVEY METADATA
+SURVEY_INFO<-c("OBS_YEAR", "REGION", "REGION_NAME", "ISLAND", "ANALYSIS_SCHEME", "ANALYSIS_YEAR", "SEC_NAME", "SITE", "DATE_", "REEF_ZONE", "DEPTH_BIN", "LATITUDE", "LONGITUDE", "SITEVISITID", "METHOD")
+survey_table<-Aggregate_InputTable(wd, SURVEY_INFO)
+
+OTHER_BENTHIC<-c("CLAM", "CORALLIMORPH", "ZOANTHID", "TUNICATE", "SPONGE", "TA", "CYANO", "OTHER", "SOFT_CORAL") #used to collect all these categories individually --> pool into "OTHER_BENTHIC" to match our current methods where all these categories would be part of our "OTHER" category
+wd$OTHER_BENTHIC<-rowSums(wd[,OTHER_BENTHIC], na.rm=T) #sum estimates of OTHER_BENTHIC
+SURVEY_SITE_DATA<-c("DEPTH", "HARD_CORAL", "MA", "CCA", "SAND", "OTHER_BENTHIC", "ComplexityValue", "MEAN_SH", "SD_SH_DIFF", "MAX_HEIGHT")
+
+##FORM DATAFRAME OF SITE METADATA AND BENTHIC ESTIMATES FOR EACH SURVEY
+#calculate % cover estimates based on diver visual estimates --> **Use only if we have NO PHOTOQUAD DATA for an area!!
+survey_est_benthos<-Calc_Site_nSurveysArea(wd, UNIQUE_SURVEY, UNIQUE_REP, UNIQUE_COUNT, SURVEY_SITE_DATA)  #Calc_Site_nSurveysArea function deals better with situations where one REP has benthic data and the other doesnt 
+surveys<-merge(survey_table, survey_est_benthos, by=UNIQUE_SURVEY)
+
+##FORM DATAFRAME OF FISH SPECIES INFO (for possible later use)
+FISH_SPECIES_FIELDS<-c("SPECIES","TAXONNAME", "FAMILY", "COMMONFAMILYALL", "TROPHIC_MONREP", "LW_A", "LW_B", "LENGTH_CONVERSION_FACTOR")
+species_table<-Aggregate_InputTable(wd, FISH_SPECIES_FIELDS)
+```
+
+
+##### DATA REQUEST
+American Samoa & Marianas since 2009
+   - per priority species:
+        *SITE-LEVEL ONLY: mean count per species per size <- COME BACK TO ONCE SPATIAL CONSISTENCY DETERMINED
+        *mean density per 5 cm size bins
+        *mean density per 10 cm size bins
+        *mean TL
+        *max TL
+        
+   - all herbivores: with detritivores AND without detritivores
+        *density
+        *biomass
+        *species richness
+   
+   - per herbivore functional group: detritivores as its own group
+        *density
+        *biomass
+
+^ estimates per year
+^ depth bin by sector, island, jurisdiction (spatial consistency across years per spatial scale AND any strata with min N of 2)
+^ provide sample size summaries
+   
+*NOTE* Also provided sector, island, jurisdiction estimates of ALL response metrics and fish groupings listed above without further dividing into depth bins!
+
+   
+## CALCULATE METRICS PER SITE
+```{r message = FALSE, warning = FALSE}
+## subset: Samoa and Marianas since 2009
+wd_req <- wd %>% filter(OBS_YEAR > 2009 & REGION %in% c("SAMOA", "S.MARIAN", "N.MARIAN")) %>% mutate_at(vars(REGION, TAXONNAME), ~as.character(.)) %>% mutate(REGION = ifelse(str_detect(REGION, "MAR"), "MARIAN", REGION))
+# 2215 sites
+
+## PER PRIORITY SPECIES
+prior.spp <- read.csv("C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/Priority species.csv") %>% mutate(PrioritySpecies = "Y")
+
+# define overall size range for binning
+wd_req %>% distinct(SIZE_) %>% arrange(-SIZE_)  
+
+wd_req_prior <- wd_req %>% mutate(TAXONNAME = ifelse(REGION == "MARIAN" & TAXONNAME %in% c("Chlorurus spilurus", "Chlororus sordidus"), "Chlorurus spilurus/sordidus", TAXONNAME)) %>% # define C. spilurus/sordidus "complex" in Marianas
+  left_join(prior.spp, by = c("REGION", "TAXONNAME")) %>% mutate(COUNT = ifelse(is.na(PrioritySpecies), 0, COUNT)) %>%  # indicate priority species (NO BOMU, ELVA, Gerres oyena, Pristipomoides zonatus)
+  mutate(TAXONNAME = ifelse(is.na(PrioritySpecies), "NONFOCAL.SP", TAXONNAME)) %>% # turn non-priority species counts to 0 --> so don't lose survey sites altogether! 
+  mutate(SIZE_5cm = cut(SIZE_, c(seq(0, 240, by = 5)), include.lowest = TRUE)) %>% mutate(SIZE_10cm = cut(SIZE_, c(seq(0, 240, by = 10)), include.lowest = TRUE)) # assign size bins (5 cm and 10 cm)
+
+## SITE ESTIMATES
+
+wsd_prior_abund_5cm <- wd_req_prior %>%  
+  mutate(abund_m2 = COUNT/(pi*(7.5^2))) %>% # calculate density per record
+#  mutate(abund_m2 = ifelse(is.na(abund_m2), 0, abund_m2)) %>% # replace NAs with 0s 
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, TAXONNAME, SIZE_5cm) %>%
+  dplyr::summarize(abund.repIDtot = sum(abund_m2)) %>% as.data.frame() %>% # totals per repID
+  unite("X_Fish.grp", c(TAXONNAME, SIZE_5cm), sep = "_", remove = TRUE) %>%
+  spread(X_Fish.grp, abund.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("X_Fish.grp", "abund.repIDtot", -REGION, -ISLAND, -SEC_NAME, -REEF_ZONE, -DEPTH_BIN, -OBS_YEAR, -ANALYSIS_YEAR, -SITEVISITID, -METHOD, -REP, -REPLICATEID) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, X_Fish.grp) %>% dplyr::summarize(abund.rep = mean(abund.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, X_Fish.grp) %>% dplyr::summarize(abund.site = mean(abund.rep)) %>% as.data.frame() %>% # avg across reps
+  separate(X_Fish.grp, c("TAXONNAME", "Size_5cm"), sep = "_") %>% 
+  # focal species only
+  filter(TAXONNAME != "NONFOCAL.SP")
+
+wsd_prior_abund_10cm <- wd_req_prior %>%  
+  mutate(abund_m2 = COUNT/(pi*(7.5^2))) %>% # calculate density per record
+#  mutate(abund_m2 = ifelse(is.na(abund_m2), 0, abund_m2)) %>% # replace NAs with 0s 
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, TAXONNAME, SIZE_10cm) %>%
+  dplyr::summarize(abund.repIDtot = sum(abund_m2)) %>% as.data.frame() %>% # totals per repID
+  unite("X_Fish.grp", c(TAXONNAME, SIZE_10cm), sep = "_", remove = TRUE) %>%
+  spread(X_Fish.grp, abund.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("X_Fish.grp", "abund.repIDtot", -REGION, -ISLAND, -SEC_NAME, -REEF_ZONE, -DEPTH_BIN, -OBS_YEAR, -ANALYSIS_YEAR, -SITEVISITID, -METHOD, -REP, -REPLICATEID) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, X_Fish.grp) %>% dplyr::summarize(abund.rep = mean(abund.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, X_Fish.grp) %>% dplyr::summarize(abund.site = mean(abund.rep)) %>% as.data.frame() %>% # avg across reps
+  separate(X_Fish.grp, c("TAXONNAME", "Size_10cm"), sep = "_") %>% 
+  # focal species only
+  filter(TAXONNAME != "NONFOCAL.SP")
+
+wsd_prior_meanTL <- wd_req_prior %>% ## In Fish Team Functions, base unit for mean length metrics = ENTIRE SURVEY (both cylinders) 
+ # per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, TAXONNAME, SIZE_) %>% # per size
+  dplyr::summarize(tot.count = sum(COUNT)) %>% as.data.frame() %>% # total counts
+  mutate(size_count = SIZE_*tot.count) %>% 
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, TAXONNAME) %>% # per species
+  dplyr::summarize(final.count = sum(tot.count), tot.CS = sum(size_count)) %>% as.data.frame() %>% # totals per site
+  mutate(mean.TL = ifelse(final.count == 0, NA, tot.CS/final.count)) %>% select(-final.count, -tot.CS) %>% # calculate mean length
+  spread(TAXONNAME, mean.TL, fill = NA) %>% # estimates per group at every site
+  gather("TAXONNAME", "mean.cmTL", -REGION, -ISLAND, -SEC_NAME, -REEF_ZONE, -DEPTH_BIN, -OBS_YEAR, -ANALYSIS_YEAR, -SITEVISITID) %>% 
+  # focal species only
+  filter(TAXONNAME != "NONFOCAL.SP")
+  
+wsd_prior_maxTL <- wd_req_prior %>% ## In Fish Team Functions, base unit for mean length metrics = ENTIRE SURVEY (both cylinders) 
+ # per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, TAXONNAME) %>% # per site
+  mutate(SIZE_ = ifelse(COUNT == 0, 0, SIZE_)) %>%
+  dplyr::summarize(max.length = max(SIZE_)) %>% as.data.frame() %>% # max length
+  mutate(max.length = ifelse(max.length == 0, NA, max.length)) %>%
+  spread(TAXONNAME, max.length, fill = NA) %>% # estimates per group at every site
+  gather("TAXONNAME", "max.cmTL", -REGION, -ISLAND, -SEC_NAME, -REEF_ZONE, -DEPTH_BIN, -OBS_YEAR, -ANALYSIS_YEAR, -SITEVISITID) %>% 
+  # focal species only
+  filter(TAXONNAME != "NONFOCAL.SP")
+
+
+
+## HERBIVORES
+# larger roving herbivorous fishes (Acanthuridae, Scarinae, Siganidae, Kyphosidae, Pomacanthidae) and functional groups as defined in Heenan et al. 2016.
+# juvenile (<20cm TL) NAAN and NABR = browsers (adults not herbivores)
+# scrapers/small excavators: Hipposcarus; all Scarus (*except SCRU > 35 cm TL); sm excavator spp.: CHSL, CHJA; and smaller indivs. of large excavator spp.: CHFN & CHMC <= 20 cm TL; Cetoscarus & C. perspicillatus (CHPE) <= 35 cm TL
+# lg. excavators/bioeroders: CHFN & CHMC > 20 cm TL; Cetoscarus, C. perspicillatus (CHPE), and SCRU > 35 cm TL 
+
+herb.spp <- read.csv("C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/FxnGrp.csv", header=T, na.strings=c("","NA")) %>% mutate(Herb = "Y") 
+
+wd_req_herb_full <- wd_req %>% left_join(herb.spp, by = c("SPECIES", "TAXONNAME")) %>% # add identifier of herb species
+  # define fxnal grps
+  mutate(Herb.Fxn = ifelse(Fxn.Notes == "<=35" & SIZE_ <= 35, "Scraper", ifelse(Fxn.Notes == "<=35" & SIZE_ >35, "Excavator", ifelse(Fxn.Notes == "<=20" & SIZE_ <=20, "Scraper", ifelse(Fxn.Notes == "<=20" & SIZE_ >20, "Excavator",
+                              ifelse(Fxn.Notes == "<=30" & SIZE_ <= 30, "Scraper", ifelse(Fxn.Notes == "<=30" & SIZE_ >30, "Excavator", NA))))))) %>% 
+  mutate(Herb.Fxn = ifelse(Fxn.Notes == "<20" & SIZE_ <20, "Browser", ifelse(Fxn.Notes == "<20" & SIZE_ >=20, NA, Herb.Fxn))) %>% mutate(Herb.Fxn = ifelse(Fxn.Notes == "ALL HERB ONLY", NA, Herb.Fxn)) %>% 
+  mutate(Herb.Fxn = ifelse(is.na(Fxn.Notes) & !is.na(Fxn.Grp), Fxn.Grp, Herb.Fxn)) %>% 
+  mutate(Herb = ifelse(Fxn.Notes == "<20" & SIZE_ >=20, NA, Herb)) %>% mutate_at(vars(Herb, Herb.Fxn), ~ifelse(!is.na(.), ., "NONFOCAL.SP"))
+
+# WITH DETRITIVORES
+wd_req_herb_detrit <- wd_req_herb_full %>% mutate(COUNT = ifelse(Herb == "NONFOCAL.SP", 0, COUNT)) %>%  # turn non-herb species counts to 0 --> so don't lose survey sites altogether! 
+  mutate(Herb = ifelse(Herb == "Y", "Herbivore", Herb))
+
+# WITHOUT DETRITIVORES  
+wd_req_herb_NOdetrit <- wd_req_herb_full %>% mutate(COUNT = ifelse(Herb == "NONFOCAL.SP" | Herb.Fxn == "Detritivore", 0, COUNT)) %>%  # turn non-herb species counts to 0 --> so don't lose survey sites altogether! 
+  mutate_at(vars(TAXONNAME, Herb), ~ifelse(Herb == "NONFOCAL.SP" | Herb.Fxn == "Detritivore", "NONFOCAL.SP", .)) %>% mutate(Herb = ifelse(Herb == "Y", "Herbivore", Herb))
+
+
+
+# WITH DETRITIVORES
+wsd_herb_abund <- wd_req_herb_detrit %>%  
+  mutate(abund_m2 = COUNT/(pi*(7.5^2))) %>% # calculate density per record
+#  mutate(abund_m2 = ifelse(is.na(abund_m2), 0, abund_m2)) %>% # replace NAs with 0s 
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, Herb) %>%
+  dplyr::summarize(abund.repIDtot = sum(abund_m2)) %>% as.data.frame() %>% # totals per repID
+  spread(Herb, abund.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("Herb", "abund.repIDtot", Herbivore, NONFOCAL.SP) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, Herb) %>% dplyr::summarize(abund.rep = mean(abund.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, Herb) %>% dplyr::summarize(herb.abund.site = mean(abund.rep)) %>% as.data.frame() %>% # avg across reps
+  # focal species only
+  filter(Herb != "NONFOCAL.SP")
+ 
+wsd_herb_biom <- wd_req_herb_detrit %>%  
+  mutate(biom_m2 = ((LW_A*((SIZE_*LENGTH_CONVERSION_FACTOR)^LW_B))*COUNT)/(pi*(7.5^2))) %>% # calculate biomass per record
+#  mutate(biom_m2 = ifelse(is.na(biom_m2), 0, biom_m2)) %>% # replace NAs with 0s 
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, Herb) %>%
+  dplyr::summarize(biom.repIDtot = sum(biom_m2)) %>% as.data.frame() %>% # totals per repID
+  spread(Herb, biom.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("Herb", "biom.repIDtot", Herbivore, NONFOCAL.SP) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, Herb) %>% dplyr::summarize(biom.rep = mean(biom.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, Herb) %>% dplyr::summarize(herb.biom.site = mean(biom.rep)) %>% as.data.frame() %>% # avg across reps
+  # focal species only
+  filter(Herb != "NONFOCAL.SP")
+
+wsd_herb_sprich <- wd_req_herb_detrit %>% ## In Fish Team Functions, base unit for mean length metrics = ENTIRE SURVEY (both cylinders) 
+ # per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID) %>% # per site
+  dplyr::summarize(herb.N.species = n_distinct(TAXONNAME[Herb == "Herbivore"])) %>% as.data.frame() # species richness
+
+
+# WITHOUT DETRITIVORES
+wsd_herb_abund_NOdetrit <- wd_req_herb_NOdetrit %>%  
+  mutate(abund_m2 = COUNT/(pi*(7.5^2))) %>% # calculate density per record
+#  mutate(abund_m2 = ifelse(is.na(abund_m2), 0, abund_m2)) %>% # replace NAs with 0s 
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, Herb) %>%
+  dplyr::summarize(abund.repIDtot = sum(abund_m2)) %>% as.data.frame() %>% # totals per repID
+  spread(Herb, abund.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("Herb", "abund.repIDtot", Herbivore, NONFOCAL.SP) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, Herb) %>% dplyr::summarize(abund.rep = mean(abund.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, Herb) %>% dplyr::summarize(herbNOdetrit.abund.site = mean(abund.rep)) %>% as.data.frame() %>% # avg across reps
+  # focal species only
+  filter(Herb != "NONFOCAL.SP")
+ 
+wsd_herb_biom_NOdetrit <- wd_req_herb_NOdetrit %>%  
+  mutate(biom_m2 = ((LW_A*((SIZE_*LENGTH_CONVERSION_FACTOR)^LW_B))*COUNT)/(pi*(7.5^2))) %>% # calculate biomass per record
+#  mutate(biom_m2 = ifelse(is.na(biom_m2), 0, biom_m2)) %>% # replace NAs with 0s 
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, Herb) %>%
+  dplyr::summarize(biom.repIDtot = sum(biom_m2)) %>% as.data.frame() %>% # totals per repID
+  spread(Herb, biom.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("Herb", "biom.repIDtot", Herbivore, NONFOCAL.SP) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, Herb) %>% dplyr::summarize(biom.rep = mean(biom.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, Herb) %>% dplyr::summarize(herbNOdetrit.biom.site = mean(biom.rep)) %>% as.data.frame() %>% # avg across reps
+  # focal species only
+  filter(Herb != "NONFOCAL.SP")
+
+wsd_herb_sprich_NOdetrit <- wd_req_herb_NOdetrit %>% ## In Fish Team Functions, base unit for mean length metrics = ENTIRE SURVEY (both cylinders) 
+ # per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID) %>% # per site
+  dplyr::summarize(herbNOdetrit.N.species = n_distinct(TAXONNAME[Herb == "Herbivore"])) %>% as.data.frame() # species richness
+
+
+# HERBIVORE FUNCTIONAL GROUPS (WITH DETRITIVORES)
+wsd_herbfxn_abund <- wd_req_herb_detrit %>%  
+  mutate(abund_m2 = COUNT/(pi*(7.5^2))) %>% # calculate density per record
+#  mutate(abund_m2 = ifelse(is.na(abund_m2), 0, abund_m2)) %>% # replace NAs with 0s 
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, Herb.Fxn) %>%
+  dplyr::summarize(abund.repIDtot = sum(abund_m2)) %>% as.data.frame() %>% # totals per repID
+  spread(Herb.Fxn, abund.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("Herb.Fxn", "abund.repIDtot", Browser, Detritivore, Excavator, Grazer, NONFOCAL.SP, Scraper) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, Herb.Fxn) %>% dplyr::summarize(abund.rep = mean(abund.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, Herb.Fxn) %>% dplyr::summarize(herbfxn.abund.site = mean(abund.rep)) %>% as.data.frame() %>% # avg across reps
+  # focal species only
+  filter(Herb.Fxn != "NONFOCAL.SP")
+ 
+wsd_herbfxn_biom <- wd_req_herb_detrit %>%  
+  mutate(biom_m2 = ((LW_A*((SIZE_*LENGTH_CONVERSION_FACTOR)^LW_B))*COUNT)/(pi*(7.5^2))) %>% # calculate biomass per record
+#  mutate(biom_m2 = ifelse(is.na(biom_m2), 0, biom_m2)) %>% # replace NAs with 0s 
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, Herb.Fxn) %>%
+  dplyr::summarize(biom.repIDtot = sum(biom_m2)) %>% as.data.frame() %>% # totals per repID
+  spread(Herb.Fxn, biom.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("Herb.Fxn", "biom.repIDtot", Browser, Detritivore, Excavator, Grazer, NONFOCAL.SP, Scraper) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, Herb.Fxn) %>% dplyr::summarize(biom.rep = mean(biom.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, Herb.Fxn) %>% dplyr::summarize(herbfxn.biom.site = mean(biom.rep)) %>% as.data.frame() %>% # avg across reps
+  # focal species only
+  filter(Herb.Fxn != "NONFOCAL.SP")
+ 
+
+
+## FINAL DATASET:
+wsd <- wsd_prior_abund_5cm %>% mutate(Response = "abund_m2", Fish.grp = "priority", Size.bin = "5 cmTL") %>% dplyr::rename(Response.value = abund.site, Size = Size_5cm) %>% 
+  bind_rows(wsd_prior_abund_10cm %>% mutate(Response = "abund_m2", Fish.grp = "priority", Size.bin = "10 cmTL") %>% dplyr::rename(Response.value = abund.site, Size = Size_10cm)) %>%
+  bind_rows(wsd_prior_meanTL %>% mutate(Response = "mean.cmTL", Fish.grp = "priority") %>% dplyr::rename(Response.value = mean.cmTL)) %>% 
+  bind_rows(wsd_prior_maxTL %>% mutate(Response = "max.cmTL", Fish.grp = "priority") %>% dplyr::rename(Response.value = max.cmTL)) %>% 
+  bind_rows(wsd_herb_abund %>% select(-Herb) %>% mutate(Response = "abund_m2", Fish.grp = "herb_all") %>% dplyr::rename(Response.value = herb.abund.site)) %>% 
+  bind_rows(wsd_herb_biom %>% select(-Herb) %>% mutate(Response = "biom_g_m2", Fish.grp = "herb_all") %>% dplyr::rename(Response.value = herb.biom.site)) %>% 
+  bind_rows(wsd_herb_sprich %>% mutate(Response = "N.species", Fish.grp = "herb_all") %>% dplyr::rename(Response.value = herb.N.species)) %>% 
+  bind_rows(wsd_herb_abund_NOdetrit %>% select(-Herb) %>% mutate(Response = "abund_m2", Fish.grp = "herb_NOdetrit") %>% dplyr::rename(Response.value = herbNOdetrit.abund.site)) %>% 
+  bind_rows(wsd_herb_biom_NOdetrit %>% select(-Herb) %>% mutate(Response = "biom_g_m2", Fish.grp = "herb_NOdetrit") %>% dplyr::rename(Response.value = herbNOdetrit.biom.site)) %>% 
+  bind_rows(wsd_herb_sprich_NOdetrit %>% mutate(Response = "N.species", Fish.grp = "herb_NOdetrit") %>% dplyr::rename(Response.value = herbNOdetrit.N.species)) %>% 
+  bind_rows(wsd_herbfxn_abund %>% mutate(Response = "abund_m2", Fish.grp = "herb_fxngrp") %>% dplyr::rename(Response.value = herbfxn.abund.site, Fxn.grp = Herb.Fxn)) %>% 
+  bind_rows(wsd_herbfxn_biom %>% mutate(Response = "biom_g_m2", Fish.grp = "herb_fxngrp") %>% dplyr::rename(Response.value = herbfxn.biom.site, Fxn.grp = Herb.Fxn))
+```
+
+##  STRATA
+```{r message = FALSE, warning = FALSE}
+## TREAT GUGUAN, ALAMAGAN, SARIGAN AS ONE ISLAND  (REALLY ONE BASE REPORTING UNIT .. BUT SIMPLER TO STICK TO 'ISLAND')
+SGA<-c("Guguan", "Alamagan", "Sarigan")
+levels(wsd$ISLAND)<-c(levels(wsd$ISLAND), "AGS")
+wsd[wsd$ISLAND %in% SGA,]$ISLAND<-"AGS"
+sectors[sectors$ISLAND %in% SGA,]$ISLAND<-"AGS"
+
+## ATTACH SECTORS
+wsd.pool <- wsd %>% left_join(sectors %>% filter(REGION %in% c("N.MARIAN", "S.MARIAN", "SAMOA")) %>% select(SEC_NAME, REEF_ZONE, DEPTH_BIN, AREA_HA, RAMP_CURRENT), by = c("SEC_NAME", "REEF_ZONE", "DEPTH_BIN"))  
+
+## STRATA ESTIMATES
+strata <- wsd.pool %>% group_by(REGION, ISLAND, RAMP_CURRENT, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, AREA_HA, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>%
+  dplyr::summarize(strata.mean = mean(Response.value), # average each metric across sites per strata
+            strata.var = var(Response.value), # calculate variance
+            strata.N = n_distinct(SITEVISITID), # calculate # of sites per strata
+            strata.se = sqrt(strata.var)/sqrt(strata.N)) %>% as.data.frame() # calculate SE
+
+# CREATE sample size summary
+N.summ <- strata %>% distinct(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, strata.N) %>% arrange(REGION, ISLAND, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR)
+write.csv(N.summ, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/N.summary.csv")
+```
+
+## SECTOR
+```{r message = FALSE, warning = FALSE}
+## ANY strata with N>1 
+strata_drop <- strata %>% filter(strata.N>1)
+
+pool.totals <- strata_drop %>% group_by(REGION, ISLAND, RAMP_CURRENT, DEPTH_BIN, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+strata_wt <- strata_drop %>% left_join(pool.totals, by=c("REGION", "ISLAND", "RAMP_CURRENT", "DEPTH_BIN", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+sector <- strata_wt %>% group_by(REGION, ISLAND, RAMP_CURRENT, DEPTH_BIN, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame() %>% # SD of sample means for entire domain (=equiv to sample SE)  
+  dplyr::rename(SECTOR = RAMP_CURRENT)
+
+write.csv(sector, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/sector.depth.estimates.csv")
+
+# NO DEPTH
+pool.totals_ND <- strata_drop %>% group_by(REGION, ISLAND, RAMP_CURRENT, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+strata_wt_ND <- strata_drop %>% left_join(pool.totals_ND, by=c("REGION", "ISLAND", "RAMP_CURRENT", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+sector_ND <- strata_wt_ND %>% group_by(REGION, ISLAND, RAMP_CURRENT, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame() %>% # SD of sample means for entire domain (=equiv to sample SE)  
+  dplyr::rename(SECTOR = RAMP_CURRENT)
+
+write.csv(sector_ND, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/sector.estimates.csv")
+
+
+## CONSISTENT strata through time
+strata_drop2 <- strata %>% filter(strata.N<2) %>% distinct(SEC_NAME, REEF_ZONE, DEPTH_BIN) %>% mutate(drop.strata = "Y") %>% # define strata with N<2 --> 20 unique strata
+  right_join(strata, by = c("SEC_NAME", "REEF_ZONE", "DEPTH_BIN")) %>% filter(is.na(drop.strata)) %>% select(-drop.strata) # REMOVE strata from all years
+
+pool.totals2 <- strata_drop2 %>% group_by(REGION, ISLAND, RAMP_CURRENT, DEPTH_BIN, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+strata_wt2 <- strata_drop2 %>% left_join(pool.totals2, by=c("REGION", "ISLAND", "RAMP_CURRENT", "DEPTH_BIN", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+sector2 <- strata_wt2 %>% group_by(REGION, ISLAND, RAMP_CURRENT, DEPTH_BIN, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame() %>% # SD of sample means for entire domain (=equiv to sample SE)  
+  dplyr::rename(SECTOR = RAMP_CURRENT)
+
+write.csv(sector2, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/sector.depth.consistentstrata.estimates.csv")
+
+# NO DEPTH
+pool.totals2_ND <- strata_drop2 %>% group_by(REGION, ISLAND, RAMP_CURRENT, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+strata_wt2_ND <- strata_drop2 %>% left_join(pool.totals2_ND, by=c("REGION", "ISLAND", "RAMP_CURRENT", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+sector2_ND <- strata_wt2_ND %>% group_by(REGION, ISLAND, RAMP_CURRENT, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame() %>% # SD of sample means for entire domain (=equiv to sample SE)  
+  dplyr::rename(SECTOR = RAMP_CURRENT)
+
+write.csv(sector2_ND, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/sector.consistentstrata.estimates.csv")
+
+```
+
+## ISLAND
+```{r message = FALSE, warning = FALSE}
+## ANY strata with N>1 
+isl.strata_drop <- strata %>% filter(strata.N>1)
+
+isl.pool.totals <- isl.strata_drop %>% group_by(REGION, ISLAND, DEPTH_BIN, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+isl.strata_wt <- isl.strata_drop %>% left_join(isl.pool.totals, by=c("REGION", "ISLAND", "DEPTH_BIN", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+island <- isl.strata_wt %>% group_by(REGION, ISLAND, DEPTH_BIN, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame()  # SD of sample means for entire domain (=equiv to sample SE)  
+
+write.csv(island, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/island.depth.estimates.csv")
+
+# NO DEPTH
+isl.pool.totals_ND <- isl.strata_drop %>% group_by(REGION, ISLAND, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+isl.strata_wt_ND <- isl.strata_drop %>% left_join(isl.pool.totals_ND, by=c("REGION", "ISLAND", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+island_ND <- isl.strata_wt_ND %>% group_by(REGION, ISLAND, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame()  # SD of sample means for entire domain (=equiv to sample SE)  
+
+write.csv(island_ND, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/island.estimates.csv")
+
+
+## CONSISTENT strata through time
+isl.strata_drop2 <- strata %>% filter(strata.N<2) %>% distinct(SEC_NAME, REEF_ZONE, DEPTH_BIN) %>% mutate(drop.strata = "Y") %>% # define strata with N<2 --> 20 unique strata
+  right_join(strata, by = c("SEC_NAME", "REEF_ZONE", "DEPTH_BIN")) %>% filter(is.na(drop.strata)) %>% select(-drop.strata) # REMOVE strata from all years
+
+isl.pool.totals2 <- isl.strata_drop2 %>% group_by(REGION, ISLAND, DEPTH_BIN, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+isl.strata_wt2 <- isl.strata_drop2 %>% left_join(pool.totals2, by=c("REGION", "ISLAND", "DEPTH_BIN", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+island2 <- isl.strata_wt2 %>% group_by(REGION, ISLAND, DEPTH_BIN, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame()  # SD of sample means for entire domain (=equiv to sample SE)  
+
+write.csv(island2, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/island.depth.consistentstrata.estimates.csv")
+
+# NO DEPTH
+isl.pool.totals2_ND <- isl.strata_drop2 %>% group_by(REGION, ISLAND, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+isl.strata_wt2_ND <- isl.strata_drop2 %>% left_join(pool.totals2_ND, by=c("REGION", "ISLAND", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+island2_ND <- isl.strata_wt2_ND %>% group_by(REGION, ISLAND, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame()  # SD of sample means for entire domain (=equiv to sample SE)  
+
+write.csv(island2_ND, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/island.consistentstrata.estimates.csv")
+```
+
+## JURISDICTION
+```{r message = FALSE, warning = FALSE}
+## ANY strata with N>1 
+jur.strata_drop <- strata %>% filter(strata.N>1)
+
+jur.pool.totals <- jur.strata_drop %>% group_by(REGION, DEPTH_BIN, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+jur.strata_wt <- jur.strata_drop %>% left_join(jur.pool.totals, by=c("REGION", "DEPTH_BIN", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+juris <- jur.strata_wt %>% group_by(REGION, DEPTH_BIN, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame()  # SD of sample means for entire domain (=equiv to sample SE)  
+
+write.csv(juris, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/juris.depth.estimates.csv")
+
+# NO DEPTH
+jur.pool.totals_ND <- jur.strata_drop %>% group_by(REGION, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+jur.strata_wt_ND <- jur.strata_drop %>% left_join(jur.pool.totals_ND, by=c("REGION", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+juris_ND <- jur.strata_wt_ND %>% group_by(REGION, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame()  # SD of sample means for entire domain (=equiv to sample SE)  
+
+write.csv(juris_ND, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/juris.estimates.csv")
+
+
+## CONSISTENT strata through time
+jur.strata_drop2 <- strata %>% filter(strata.N<2) %>% distinct(SEC_NAME, REEF_ZONE, DEPTH_BIN) %>% mutate(drop.strata = "Y") %>% # define strata with N<2 --> 20 unique strata
+  right_join(strata, by = c("SEC_NAME", "REEF_ZONE", "DEPTH_BIN")) %>% filter(is.na(drop.strata)) %>% select(-drop.strata) # REMOVE strata from all years
+
+jur.pool.totals2 <- jur.strata_drop2 %>% group_by(REGION, DEPTH_BIN, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+jur.strata_wt2 <- jur.strata_drop2 %>% left_join(pool.totals2, by=c("REGION", "DEPTH_BIN", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+juris2 <- jur.strata_wt2 %>% group_by(REGION, DEPTH_BIN, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame()  # SD of sample means for entire domain (=equiv to sample SE)  
+
+write.csv(juris2, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/juris.depth.consistentstrata.estimates.csv")
+
+# NO DEPTH
+jur.pool.totals2_ND <- jur.strata_drop2 %>% group_by(REGION, OBS_YEAR, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% dplyr::summarize(TOT_AREA_HA = sum(AREA_HA), tot.N = sum(strata.N)) %>% as.data.frame()
+
+# calculate weighted values per strata
+jur.strata_wt2_ND <- jur.strata_drop2 %>% left_join(pool.totals2_ND, by=c("REGION", "OBS_YEAR", "Response", "Fish.grp", "TAXONNAME", "Size.bin", "Size", "Fxn.grp")) %>% # attach totals
+  mutate(grid_size = 50*50, area_units = 100*100) %>% # add grid cell size and units of area = hectares
+  mutate(propSampled = (strata.N*grid_size) / (AREA_HA*area_units)) %>%  # calculate proportion of total area sampled per strata
+  mutate(propSampled = ifelse(propSampled > 1, 1, propSampled)) %>% # cap proportions at 1
+  mutate(wt = AREA_HA/TOT_AREA_HA) %>% # calculate proportional wt per strata: AREA_HA / total AREA_HA per grouping (= wts per strata)
+  # calculate weighted values
+  mutate(wt.mean = strata.mean*wt) %>% # weighted means
+  mutate(wt.var = strata.var*((wt^2)/strata.N)*(1-propSampled))  # weighted var: var*(N^2/N), then adjust for proportion of total area sampled (using Krebs formula 8.18 p276)
+
+# pool across strata to desired groupings
+juris2_ND <- jur.strata_wt2_ND %>% group_by(REGION, OBS_YEAR, TOT_AREA_HA, tot.N, Response, Fish.grp, TAXONNAME, Size.bin, Size, Fxn.grp) %>% 
+  dplyr::summarize(pool.mean = sum(wt.mean), # sum across strata: pooled means
+            pool.var = sum(wt.var),  # sum across strata: this is effectively pooled variance of sample means for entire domain
+            pool.se = sqrt(pool.var)) %>% as.data.frame()  # SD of sample means for entire domain (=equiv to sample SE)  
+
+write.csv(juris2_ND, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/juris.consistentstrata.estimates.csv")
+```
+
+
+## SITE-LEVEL DATA
+```{r message = FALSE, warning = FALSE}
+## ANY strata with N>1
+wd_req_prior.N2 <- wd_req %>% mutate(TAXONNAME = ifelse(REGION == "MARIAN" & TAXONNAME %in% c("Chlorurus spilurus", "Chlororus sordidus"), "Chlorurus spilurus/sordidus", TAXONNAME)) %>% # define C. spilurus/sordidus "complex" in Marianas
+  left_join(prior.spp, by = c("REGION", "TAXONNAME")) %>% mutate(COUNT = ifelse(is.na(PrioritySpecies), 0, COUNT)) %>%  # indicate priority species (NO BOMU, ELVA, Gerres oyena, Pristipomoides zonatus)
+  mutate(TAXONNAME = ifelse(is.na(PrioritySpecies), "NONFOCAL.SP", TAXONNAME)) %>% 
+  # REMOVE strata with N<2
+  left_join(strata %>% filter(strata.N<2) %>% distinct(SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR) %>% mutate(drop.strata = "Y"), by = c("SEC_NAME", "REEF_ZONE", "DEPTH_BIN", "OBS_YEAR")) %>% # 26 combos
+  filter(is.na(drop.strata)) %>% select(-drop.strata) %>%
+  # ATTACH RAMP_CURRENT sector groupings
+  left_join(sectors %>% filter(REGION %in% c("N.MARIAN", "S.MARIAN", "SAMOA")) %>% select(SEC_NAME, REEF_ZONE, DEPTH_BIN, RAMP_CURRENT), by = c("SEC_NAME", "REEF_ZONE", "DEPTH_BIN")) %>% dplyr::rename(ANALYSIS_SEC = RAMP_CURRENT)  
+
+# SITE ESTIMATES
+wsd_prior_abund_size <- wd_req_prior.N2 %>%  
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, ANALYSIS_SEC, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, TAXONNAME, SIZE_) %>%
+  dplyr::summarize(count.repIDtot = sum(COUNT)) %>% as.data.frame() %>% # totals per repID
+  unite("X_Fish.grp", c(TAXONNAME, SIZE_), sep = "_", remove = TRUE) %>%
+  spread(X_Fish.grp, count.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("X_Fish.grp", "count.repIDtot", -REGION, -ISLAND, -SEC_NAME, -ANALYSIS_SEC, -REEF_ZONE, -DEPTH_BIN, -OBS_YEAR, -ANALYSIS_YEAR, -SITEVISITID, -METHOD, -REP, -REPLICATEID) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, ANALYSIS_SEC, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, X_Fish.grp) %>% dplyr::summarize(count.rep = mean(count.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, ANALYSIS_SEC, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, X_Fish.grp) %>% dplyr::summarize(mean.count = mean(count.rep)) %>% as.data.frame() %>% # avg across reps
+  separate(X_Fish.grp, c("TAXONNAME", "Size_cmTL"), sep = "_") %>% 
+  # focal species only
+  filter(TAXONNAME != "NONFOCAL.SP")
+
+saveRDS(wsd_prior_abund_size, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/priorityspp.size.meancount.site.strataN2.rds")
+ 
+## CONSISTENT STRATA THROUGH TIME
+wd_req_prior.strata <- wd_req %>% mutate(TAXONNAME = ifelse(REGION == "MARIAN" & TAXONNAME %in% c("Chlorurus spilurus", "Chlororus sordidus"), "Chlorurus spilurus/sordidus", TAXONNAME)) %>% # define C. spilurus/sordidus "complex" in Marianas
+  left_join(prior.spp, by = c("REGION", "TAXONNAME")) %>% mutate(COUNT = ifelse(is.na(PrioritySpecies), 0, COUNT)) %>%  # indicate priority species (NO BOMU, ELVA, Gerres oyena, Pristipomoides zonatus)
+  mutate(TAXONNAME = ifelse(is.na(PrioritySpecies), "NONFOCAL.SP", TAXONNAME)) %>% 
+  # REMOVE strata with N<2 from all years
+  left_join(strata %>% filter(strata.N<2) %>% distinct(SEC_NAME, REEF_ZONE, DEPTH_BIN) %>% mutate(drop.strata = "Y"), by = c("SEC_NAME", "REEF_ZONE", "DEPTH_BIN")) %>% # 26 combos
+  filter(is.na(drop.strata)) %>% select(-drop.strata) %>%
+  # ATTACH RAMP_CURRENT sector groupings
+  left_join(sectors %>% filter(REGION %in% c("N.MARIAN", "S.MARIAN", "SAMOA")) %>% select(SEC_NAME, REEF_ZONE, DEPTH_BIN, RAMP_CURRENT), by = c("SEC_NAME", "REEF_ZONE", "DEPTH_BIN")) %>% dplyr::rename(ANALYSIS_SEC = RAMP_CURRENT)  
+
+# SITE ESTIMATES
+wsd_prior_abund_size.strata <- wd_req_prior.strata %>%  
+  # pool up to site estimates
+  group_by(REGION, ISLAND, SEC_NAME, ANALYSIS_SEC, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, REPLICATEID, TAXONNAME, SIZE_) %>%
+  dplyr::summarize(count.repIDtot = sum(COUNT)) %>% as.data.frame() %>% # totals per repID
+  unite("X_Fish.grp", c(TAXONNAME, SIZE_), sep = "_", remove = TRUE) %>%
+  spread(X_Fish.grp, count.repIDtot, fill = 0) %>% # estimates per group at every site
+  gather("X_Fish.grp", "count.repIDtot", -REGION, -ISLAND, -SEC_NAME, -ANALYSIS_SEC, -REEF_ZONE, -DEPTH_BIN, -OBS_YEAR, -ANALYSIS_YEAR, -SITEVISITID, -METHOD, -REP, -REPLICATEID) %>%   # expand to include instances when no observations per site
+  group_by(REGION, ISLAND, ANALYSIS_SEC, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, REP, X_Fish.grp) %>% dplyr::summarize(count.rep = mean(count.repIDtot)) %>% as.data.frame() %>% # avg across repIDs
+  group_by(REGION, ISLAND, ANALYSIS_SEC, SEC_NAME, REEF_ZONE, DEPTH_BIN, OBS_YEAR, ANALYSIS_YEAR, SITEVISITID, METHOD, X_Fish.grp) %>% dplyr::summarize(mean.count = mean(count.rep)) %>% as.data.frame() %>% # avg across reps
+  separate(X_Fish.grp, c("TAXONNAME", "Size_cmTL"), sep = "_") %>% 
+  # focal species only
+  filter(TAXONNAME != "NONFOCAL.SP")
+
+saveRDS(wsd_prior_abund_size.strata, "C:/Users/tye.kindinger/Desktop/FISH TEAM/TLK_data_requests/2022_0405_KurtIngeman_JCRFMP Report/priorityspp.size.meancount.site.consiststrata.rds")
+
+```
