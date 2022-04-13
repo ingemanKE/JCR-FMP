@@ -5,24 +5,45 @@ date: "4/7/2022"
 output: html_document
 ---
 
-## Throat clearing
+## Load Libraries
 
 ```{r}
-
 library(here)
 library(tidyverse)
 library(ggplot2)
+```
 
+# Clear Environment
+
+```{r}
+rm(list = ls())
 ```
 
 
+# Read data (template)
+
+```{r}
+df.csv <- read.csv(here("Data", "Raw", "Juris", "juris.estimates.csv"))
+
+df.rds <- readRDS("~/github/JCR-FMP/Data/Raw/Strata/priorityspp.size.meancount.site.strataN2.rds")
+```
+
+
+# Explore Site-level data across dataset (*WARNING*)
+
+## *WARNING* For exploration purposes only -- data sampled unevenly across strata so summing to larger scales than stratum could lead to spurious results (if size is systemattically biased by depth, location, or other) 
 
 ```{r}
 
-rm(list = ls())
+length(df.rds$mean.count) # 2,598,343 obs including zeroes
+length(unique(df.rds$TAXONNAME)) # 47 priority species
 
+size <- df.rds %>% 
+  filter(mean.count > 0)
+
+unique(size$Size_cmTL[size$TAXONNAME == "Acanthurus guttatus"])
+
+length(size$TAXONNAME[size$TAXONNAME == "Acanthurus guttatus" & size$Size_cmTL == 6])
 ```
-
-
 
 
