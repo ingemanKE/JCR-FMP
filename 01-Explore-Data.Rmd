@@ -11,6 +11,9 @@ output: html_document
 library(here)
 library(tidyverse)
 library(ggplot2)
+library(rlang)
+library(hrbrthemes)
+
 ```
 
 # Clear Environment
@@ -25,7 +28,10 @@ rm(list = ls())
 ```{r}
 df.csv <- read.csv(here("Data", "Raw", "Juris", "juris.estimates.csv"))
 
-df.rds <- readRDS("~/github/JCR-FMP/Data/Raw/Strata/priorityspp.size.meancount.site.strataN2.rds")
+df.rds <- readRDS("~/github/JCR-FMP/Data/Raw/Strata/priorityspp.size.meancount.site.strataN2.rds") %>% 
+  filter(mean.count > 0) %>% 
+  mutate(TL = as.numeric(Size_cmTL)) %>% 
+  droplevels(ISLAND)
 ```
 
 
@@ -37,13 +43,246 @@ df.rds <- readRDS("~/github/JCR-FMP/Data/Raw/Strata/priorityspp.size.meancount.s
 
 length(df.rds$mean.count) # 2,598,343 obs including zeroes
 length(unique(df.rds$TAXONNAME)) # 47 priority species
-
-size <- df.rds %>% 
-  filter(mean.count > 0)
-
-unique(size$Size_cmTL[size$TAXONNAME == "Acanthurus guttatus"])
-
-length(size$TAXONNAME[size$TAXONNAME == "Acanthurus guttatus" & size$Size_cmTL == 6])
 ```
 
+# Make a tidy dataframe from the juridictional summary df
+
+```{r}
+df.tidy <- df.csv %>% 
+  filter(Fish.grp == "priority" & pool.mean > 0)
+
+str(df.tidy)
+
+```
+
+
+# Write plot functions in two ways 
+```{r}
+# Curly curly
+scatter_plot <- function(data, x, y, ...) {
+  ggplot(data, aes({{x}}, {{y}})) +
+    geom_point()
+}
+scatter_plot(df.tidy, pool.mean, pool.var)
+
+# Taking data and mapping as the functions arguments 
+scat_map <- function(data, mapping) {
+  ggplot(data, mapping) +
+    geom_point(alpha = 0.5)
+}
+
+scat_map(df.tidy, aes(pool.mean, pool.var, size = pool.var, color = REGION))
+# Hey
+
+```
+
+# Identify  couple of values with outlier variance
+
+```{r}
+high.var <- df.tidy %>% 
+  filter(pool.var > 0.00002) # a couple of ACGU size classes from 2018
+```
+
+# Play with the raw count data and histograms
+
+```{r}
+str(df.rds)
+
+# basic density plot and histogram
+ggplot(df.rds, aes(x=TL)) + 
+  geom_density(alpha = 0.4) 
+
+ggplot(df.rds, aes(x=TL)) + 
+  geom_histogram(alpha = 0.4)
+
+# can't overlay them because the counts are huge relative to frequency
+
+# a prettier
+ggplot(df.rds, aes(x=TL)) + 
+  geom_histogram(binwidth=1, 
+                 fill="#002B7F", 
+                 color="#e9ecef", 
+                 alpha=0.7) +
+  ggtitle("Bin size = 1") +
+  theme_ipsum() +
+  theme(
+  plot.title = element_text(size=15)
+    )
+
+
+
+```
+
+# Make a function for density plot and histogram
+```{r}
+
+density_plot <- function(data, x, alpha) {
+  ggplot(data, aes({{x}})) +
+    geom_density(fill = "#C71B36", 
+                 alpha = alpha) +
+  theme_ipsum()
+}
+
+density_plot(df.rds, TL, 0.6)
+
+# Here, I specific the fill and title outside the fucntion
+hist_plot <- function(data, x, bin, fill, title) {
+  ggplot(data, aes({{x}})) +
+   geom_histogram(binwidth = bin, 
+                 fill = fill, 
+                 color="#e9ecef", 
+                 alpha=0.7) +
+  theme_ipsum() +
+  ggtitle(title) +
+  theme(
+  plot.title = element_text(size=15))
+}
+
+my.fill = "#008DE8"
+
+hist_plot(df.rds, TL, 2, my.fill, "Size Frequency: All species")
+
+
+```
+
+####################################################################################################################################################### Turn counts within a size at a particular site in obs #######
+##############################################################################################################################################
+
+```{r}
+
+# dummy data set, turn a count variable into rows with uncount()
+df <- tibble(
+  meta = c("here", "here", "everywhere"),
+  size = c(10, 11, 12),
+  mean.count = c(3, 1, 2))
+
+df %>% uncount(mean.count) %>% 
+  as_tibble
+
+# beautiful, now I just have the problem of fractional observations due to observations in one cylinder
+
+# try multiplying all counts by factor that produces an integer (would just need to change axes by the same factor)
+df <- data.frame(
+  meta = c("here", "there", "everywhere"),
+  size = c(10, 11, 12),
+  mean.count = c(2, 1, 0.5)) %>% 
+  mutate(mean.count = 2*mean.count) %>% 
+  uncount(mean.count) 
+
+# IMPORTANT this is fine for visualization purposes (provided frequency or rescale counts) but not fine for applying any statitical test as I have inflated the number of observations by 
+
+hist_plot(df, size, bin = 1, fill = my.fill, title = "Ignore count or\njust divide by 2")
+
+# Figure out multiplier for fractional counts
+unique(df.rds$mean.count[df.rds$mean.count < 1]) *4 
+# the lowest possible multiplier is 4
+
+```
+
+# Apply uncount and multiplier to site-level data to produce (index of) individual fish observations
+```{r}
+
+df.counts <- df.rds %>% 
+  mutate(index.count = 4*mean.count) %>% 
+  select(-mean.count) %>% 
+  uncount(index.count) 
+
+```
+
+
+# Generate means and plot overlayed 
+```{r}
+df.counts <- df.counts %>% 
+  group_by(REGION) %>% 
+  mutate(mu_reg = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% 
+  group_by(ISLAND) %>% 
+  mutate(mu_isl = mean(TL, na.rm=TRUE)) %>%
+  ungroup() 
+
+ggplot(data=df.counts, aes(x=TL, group=REGION, fill=REGION)) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_reg, color = REGION),
+             linetype = "dashed") +
+      theme_ipsum()
+
+ggplot(data=df.counts, aes(x=TL, group=ISLAND, fill=ISLAND)) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_isl, color = ISLAND),
+             linetype = "dashed") +
+      theme_ipsum() +
+   facet_grid(REGION ~ .)
+  
+# lots of islands and really similar distributions of size
+# going to need a good way to send a list of islands through plot function
+
+```
+
+# Facet by region (island) instead 
+```{r}
+ggplot(data=df.counts, aes(x=TL, group=REGION, fill=REGION)) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_reg, color = REGION),
+             linetype = "dashed") +
+      theme_ipsum() +
+  facet_wrap(ISLAND ~ .)
+
+
+ggplot(data=df.counts, aes(x=TL, group=REGION, fill=REGION)) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_reg, color = REGION),
+             linetype = "dashed") +
+      theme_ipsum() +
+  facet_grid(REGION ~ .)
+
+
+```
+# Plot separate ggplot figures in a loop.
+
+```{r}
+
+# Make list of island names to loop over.
+isl_list = as.vector(unique(df.counts$ISLAND))
+
+df_list <- split(df.counts, df.counts$ISLAND)
+
+# Make plots.
+plot_list = list()
+
+for (i in 1:length(df_list)) {
+    p = density_plot(df_list[[i]], TL, 0.6)
+    plot_list[[i]] = p
+}
+
+
+# Save plots to tiff. Makes a separate file for each plot.
+for (i in 1:44) {
+    file_name = paste("Figures/Size dist. ", names(df_list)[i], ".tiff", sep="")
+    tiff(file_name)
+    print(plot_list[[i]])
+    dev.off()
+}
+
+# Another option: create pdf where each page is a separate plot.
+pdf("try.pdf")
+for (i in 1:length(df_list)) {
+  p = density_plot(df_list[[i]], TL, 0.6)
+  p
+}
+dev.off()
+
+
+pdf(file="dummy.pdf")
+
+#save plots to PDF
+for (i in 1:4) {   
+  x=rnorm(i)  
+  y=rnorm(i)  
+  plot(x, y)   
+}
+
+#turn off PDF plotting
+dev.off() 
+
+```
 
