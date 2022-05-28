@@ -1,0 +1,736 @@
+---
+title: "02-Herbivore-Summary"
+author: "Kurt Ingeman"
+date: "4/13/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Libraries
+
+```{r}
+library(here)
+library(tidyverse)
+library(ggplot2)
+library(hrbrthemes)
+library(viridis)
+```
+
+# Clear Environment
+
+```{r}
+rm(list = ls())
+```
+
+
+
+# Define palette
+```{r}
+proj.pal <- c("#0072B2","#F0E442","#CC79A7", "#009E73",  "#E69F00", "#D55E00", "#999999")
+
+```
+
+
+# Read in jurisdictional-level data for all herbivores, cumulatively
+
+```{r}
+df <- read.csv(here("Data", "Raw", "Juris", "juris.estimates.csv")) %>% 
+  mutate(Year = as.factor(OBS_YEAR))
+
+str(df)
+
+herb.all <- df %>% 
+  filter(Fish.grp == "herb_all") %>% 
+  filter(!Fish.grp == "priority")
+
+herb.mar.all <- herb.all %>% 
+  filter(!REGION == "SAMOA")
+
+herb.sam.all <- herb.all %>% 
+  filter(REGION == "SAMOA")
+
+```
+
+# Plots of all herbivore biomass, density, and species diversity (richness)
+
+## Marianas
+```{r}
+
+p.herb.all.mar <- ggplot(herb.mar.all) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ggtitle("Mariana Islands") +
+  facet_wrap(~ Response, scales = "free")
+
+ ggsave(p.herb.all.mar, filename = "Figures/Herbs/Mariana_herbs_all.jpg", width = 6, height = 4, dpi = 300, units = "in")
+
+```
+
+## Am Samoa
+```{r}
+
+p.herb.all.sam <- ggplot(herb.sam.all) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ggtitle("Am Samoa") +
+  facet_wrap(~ Response, scales = "free")
+
+ ggsave(p.herb.all.sam, filename = "Figures/Herbs/AmSamoa_herbs_all.jpg", width = 6, height = 4, dpi = 300, units = "in")
+
+```
+
+
+### 
+### MAKE TABLE TO COMPLEMENT FIGURE ###
+###
+
+# Clean up the environment by removing juris all herbivores
+```{r}
+rm(list = ls(pattern = ".all"))
+```
+
+
+# Break out herbovores by functional group (still at jurisdictional-level)
+
+```{r}
+
+herb.fxn <- df %>% 
+  filter(Fish.grp == "herb_fxngrp")
+
+herb.fxn.mar <- herb.fxn %>% 
+  filter(REGION == "MARIAN")
+
+herb.fxn.sam <- herb.fxn %>% 
+  filter(REGION == "SAMOA")
+
+```
+
+# Plots of all herbivore functional group biomass and density, clustered by year
+
+```{r}
+
+p.herb.fxn.mar <- ggplot(herb.fxn.mar, aes(fill = Fxn.grp, y=pool.mean, x=Year)) +
+    geom_bar(position="dodge", stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = proj.pal, name="Fuctional\nGroup") +
+    facet_wrap(~ Response, scales = "free")
+  
+
+ ggsave(p.herb.fxn.mar, filename = "Figures/Herbs/Mariana_herbs_fxn_yr.jpg", width = 7, height = 3, dpi = 300, units = "in")
+
+
+p.herb.fxn.sam <- ggplot(herb.fxn.sam, aes(fill = Fxn.grp, y=pool.mean, x=Year)) +
+    geom_bar(position="dodge", stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = proj.pal, name="Fuctional\nGroup") +
+    facet_wrap(~ Response, scales = "free")
+  
+
+ ggsave(p.herb.fxn.sam, filename = "Figures/Herbs/AmSamoa_herbs_fxn_yr.jpg", width = 7, height = 3, dpi = 300, units = "in")
+
+ 
+```
+
+
+# Plots of all herbivore functional group biomass and density, reverse clustering to keep identifcal funtional groups adjacent
+
+```{r}
+
+p.herb.fxn.mar.grp <- ggplot(herb.fxn.mar, aes(fill = Year, y=pool.mean, x=Fxn.grp)) +
+    geom_bar(position = position_dodge(0.7), width = 0.7, stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Fxn.grp, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position = position_dodge(0.7), width = 0.7, stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+    facet_wrap(~ Response, scales = "free")
+  
+
+ ggsave(p.herb.fxn.mar.grp, filename = "Figures/Herbs/Mariana_herbs_fxn_grp.jpg", width = 7, height = 3, dpi = 300, units = "in")
+
+
+p.herb.fxn.sam.grp <- ggplot(herb.fxn.sam, aes(fill = Year, y=pool.mean, x=Fxn.grp)) +
+    geom_bar(position = position_dodge(0.7), width = 0.7, stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Fxn.grp, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position = position_dodge(0.7), width = 0.7, stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+    facet_wrap(~ Response, scales = "free")
+  
+
+ ggsave(p.herb.fxn.sam.grp, filename = "Figures/Herbs/AmSamoa_herbs_fxn_grp.jpg", width = 7, height = 3, dpi = 300, units = "in")
+
+```
+
+### 
+### MAKE TABLE TO COMPLEMENT FIGURES ###
+###
+
+```{r}
+
+rm(list = ls(pattern = "fxn"))
+
+```
+
+
+##################################################################################
+############################### Island-level  ####################################
+##################################################################################
+
+
+
+```{r}
+
+df <- read.csv(here("Data", "Raw", "Island", "island.estimates.csv")) %>% 
+  mutate(Year = as.factor(OBS_YEAR))
+
+
+isl.all <- df %>% 
+  filter(Fish.grp == "herb_all") %>% 
+  filter(!Fish.grp == "priority")
+
+isl.mar.all <- isl.all  %>% 
+  filter(!REGION == "SAMOA")
+
+isl.sam.all <- isl.all  %>% 
+  filter(REGION == "SAMOA")
+
+```
+
+
+# Plot biomass, density, and diversity and facet by island
+
+## Marianas
+```{r}
+
+# filter for biomass
+isl.mar.all.biom <- isl.mar.all  %>% 
+  filter(Response == "biom_g_m2")
+
+p.isl.mar.all.biom  <- ggplot(isl.mar.all.biom) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ylab("Biomass") + ggtitle("Mariana Islands") +
+  facet_wrap(~ ISLAND, scales = "fixed")
+
+ ggsave(p.isl.mar.all.biom, filename = "Figures/Herbs/Mariana_herbs_isl_biom.jpg", width = 7, height = 7, dpi = 300, units = "in")
+
+# filter for density
+ isl.mar.all.dens <- isl.mar.all  %>% 
+  filter(Response == "abund_m2")
+
+p.isl.mar.all.dens  <- ggplot(isl.mar.all.dens) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ylab("Density")+ ggtitle("Mariana Islands") +
+  facet_wrap(~ ISLAND, scales = "fixed")
+
+ ggsave(p.isl.mar.all.dens, filename = "Figures/Herbs/Mariana_herbs_isl_dens.jpg", width = 7, height = 7, dpi = 300, units = "in")
+ 
+ # filter for diversity (richness)
+isl.mar.all.div <- isl.mar.all  %>% 
+  filter(Response == "N.species")
+ 
+p.isl.mar.all.div  <- ggplot(isl.mar.all.div) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ylab("Richness")+ ggtitle("Mariana Islands") +
+  facet_wrap(~ ISLAND, scales = "fixed")
+
+ggsave(p.isl.mar.all.div, filename = "Figures/Herbs/Mariana_herbs_isl_div.jpg", width = 7, height = 7, dpi = 300, units = "in")
+ 
+
+```
+
+
+
+## Am Samoa
+
+# Plot biomass, density, and diversity and facet by island
+```{r}
+
+# filter for biomass
+isl.sam.all.biom <- isl.sam.all  %>% 
+  filter(Response == "biom_g_m2")
+
+p.isl.sam.all.biom  <- ggplot(isl.sam.all.biom) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ylab("Biomass") + ggtitle("Am. Samoa") +
+  facet_wrap(~ ISLAND, scales = "fixed")
+
+ ggsave(p.isl.sam.all.biom, filename = "Figures/Herbs/AmSamoa_herbs_isl_biom.jpg", width = 7, height = 7, dpi = 300, units = "in")
+
+# filter for density
+ isl.sam.all.dens <- isl.sam.all  %>% 
+  filter(Response == "abund_m2")
+
+p.isl.sam.all.dens  <- ggplot(isl.sam.all.dens) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ylab("Density")+ ggtitle("Am. Samoa") +
+  facet_wrap(~ ISLAND, scales = "fixed")
+
+ ggsave(p.isl.sam.all.dens, filename = "Figures/Herbs/AmSamoa_herbs_isl_dens.jpg", width = 7, height = 7, dpi = 300, units = "in")
+ 
+ # filter for diversity (richness)
+isl.sam.all.div <- isl.sam.all  %>% 
+  filter(Response == "N.species")
+ 
+p.isl.sam.all.div  <- ggplot(isl.sam.all.div) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ylab("Richness")+ ggtitle("Am. Samoa") +
+  facet_wrap(~ ISLAND, scales = "fixed")
+
+ggsave(p.isl.sam.all.div, filename = "Figures/Herbs/AmSamoa_herbs_isl_div.jpg", width = 7, height = 7, dpi = 300, units = "in")
+ 
+```
+
+
+
+```{r}
+
+rm(list = ls(pattern = "isl"))
+
+```
+
+
+##################################################################################
+############################### populated vs not  ################################
+##################################################################################
+
+# All herbivores
+
+```{r}
+
+# set levels and split population from not 
+herb.pop.mar <- df %>% 
+  filter(Fish.grp == "herb_all") %>% 
+  filter(REGION == "MARIAN") %>% 
+  mutate(Pop_vs_Un = case_when(ISLAND == "Guam" ~ "Pop", 
+                               ISLAND == "Saipan" ~ "Pop", 
+                               ISLAND == "Tinian" ~ "Pop", 
+                               ISLAND == "Rota" ~ "Pop", 
+                               TRUE ~ "Un")) %>% 
+  mutate(ISLAND = factor(ISLAND, levels = c("Guam", "Saipan", "Tinian", "Rota", "Aguijan", "AGS", "Pagan", "Agrihan", "Asuncion", "Maug", "Farallon de Pajaros"))) 
+  
+
+```
+
+# Plot pop vs not with bars
+```{r}
+
+herb.pop.mar.biom <- herb.pop.mar %>% 
+    filter(Response == "biom_g_m2")
+
+p.herb.pop.mar.biom <- ggplot(herb.pop.mar.biom) +
+    geom_bar(aes(x = ISLAND, y=pool.mean, fill = Pop_vs_Un),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = ISLAND, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE) +
+  xlab("Year") + ylab("Biomass") + ggtitle("Mariana Islands\nHerbivore Biomass") +
+  facet_wrap(~ Year, scales = "fixed")
+
+
+ggsave(p.herb.pop.mar.biom, filename = "Figures/Herbs/Mariana_herbs_pop_biom.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+# filter for density
+herb.pop.mar.dens <- herb.pop.mar  %>% 
+  filter(Response == "abund_m2")
+
+p.herb.pop.mar.dens <- ggplot(herb.pop.mar.dens) +
+    geom_bar(aes(x = ISLAND, y=pool.mean, fill = Pop_vs_Un),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = ISLAND, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = 1) +
+  xlab("Year") + ylab("Density") + ggtitle("Mariana Islands\nHerbivore Density") +
+  facet_wrap(~ Year, scales = "fixed")
+
+
+ggsave(p.herb.pop.mar.dens, filename = "Figures/Herbs/Mariana_herbs_pop_dens.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+
+# filter for diversity (richness)
+herb.pop.mar.div <- herb.pop.mar  %>% 
+  filter(Response == "N.species")
+
+p.herb.pop.mar.div <- ggplot(herb.pop.mar.div) +
+    geom_bar(aes(x = ISLAND, y=pool.mean, fill = Pop_vs_Un),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = ISLAND, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = 1) +
+  xlab("Year") + ylab("Diversity") + ggtitle("Mariana Islands\nHerbivore Richness") +
+  facet_wrap(~ Year, scales = "fixed")
+
+
+ggsave(p.herb.pop.mar.div, filename = "Figures/Herbs/Mariana_herbs_pop_div.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+```
+
+# Plot pop vs not with lolipops
+
+```{r}
+
+# plot biomass
+
+p.herb.pop.mar.biom <- ggplot(herb.pop.mar.biom, 
+                              aes(x= ISLAND, y=pool.mean, group = Pop_vs_Un)) +
+  geom_segment(aes(x=ISLAND, 
+                    xend=ISLAND, 
+                    y=0, yend=pool.mean), color="grey") +
+  geom_point(aes(color = Pop_vs_Un), size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("") +
+  ylab("Herbivore\nBiomass") +
+  ggtitle("Mariana Islands\nHerbivore Biomass") +
+   scale_color_viridis(discrete = TRUE, direction = 1) +
+  facet_wrap(~ Year, scales = "fixed")
+
+ggsave(p.herb.pop.mar.biom, filename = "Figures/Herbs/Mariana_herbs_pop_biom_lol.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+# plot density 
+
+p.herb.pop.mar.dens <- ggplot(herb.pop.mar.dens, aes(x= ISLAND, y=pool.mean, group = Pop_vs_Un)) +
+  geom_segment(aes(x=ISLAND, 
+                    xend=ISLAND, 
+                    y=0, yend=pool.mean), color="grey") +
+  geom_point(aes(color = Pop_vs_Un), size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("") +
+  ggtitle("Mariana Islands\nHerbivore Density") +
+  ylab("Herbivore\nDensity") +
+   scale_color_viridis(discrete = TRUE, direction = 1) +
+  facet_wrap(~ Year, scales = "fixed")
+
+ggsave(p.herb.pop.mar.dens, filename = "Figures/Herbs/Mariana_herbs_pop_dens_lol.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+
+p.herb.pop.mar.div <- ggplot(herb.pop.mar.div, aes(x= ISLAND, y=pool.mean, group = Pop_vs_Un)) +
+  geom_segment(aes(x=ISLAND, 
+                    xend=ISLAND, 
+                    y=0, yend=pool.mean), color="grey") +
+  geom_point(aes(color = Pop_vs_Un), size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("") +
+    ggtitle("Mariana Islands\nHerbivore Richness") +
+  ylab("Herbivore\nRichness") +
+   scale_color_viridis(discrete = TRUE, direction = 1) +
+  facet_wrap(~ Year, scales = "fixed")
+
+ggsave(p.herb.pop.mar.div, filename = "Figures/Herbs/Mariana_herbs_pop_div_lol.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+```
+
+
+# Repeat pop_procedure for Am Samoa
+
+```{r}
+herb.pop.sam <- df %>% 
+  filter(Fish.grp == "herb_all") %>% 
+  filter(REGION == "SAMOA") %>% 
+  mutate(Pop = case_when(ISLAND == "Tutuila" ~ 55876, 
+                         ISLAND == "Tau" ~ 873, 
+                         ISLAND == "Ofu & Olosega" ~ 289, 
+                         ISLAND == "Swains" ~ 17, 
+                         TRUE ~ 0)) %>% 
+  mutate(ISLAND = factor(ISLAND, levels = c("Tutuila", "Tau", "Ofu & Olosega", "Swains", "Rose"))) %>% 
+  select(!c(TAXONNAME, Size.bin, Size, Fxn.grp)) %>% 
+  drop_na()
+
+
+
+
+```
+
+# set levels and split population from not 
+
+# Plot pop vs not with bars
+```{r}
+
+herb.pop.sam.biom <- herb.pop.sam %>% 
+    filter(Response == "biom_g_m2")
+
+p.herb.pop.sam.biom <- ggplot(herb.pop.sam.biom) +
+    geom_bar(aes(x = ISLAND, y=pool.mean, fill = Pop),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = ISLAND, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(direction = -1) +
+  xlab("Year") + ylab("Biomass") + ggtitle("Am. Samoa\nHerbivore Biomass") +
+  facet_wrap(~ Year, scales = "fixed")
+
+
+ggsave(p.herb.pop.sam.biom, filename = "Figures/Herbs/AmSamoa_herbs_pop_biom.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+# filter for density
+herb.pop.sam.dens <- herb.pop.sam  %>% 
+  filter(Response == "abund_m2")
+
+p.herb.pop.sam.dens <- ggplot(herb.pop.sam.dens) +
+    geom_bar(aes(x = ISLAND, y=pool.mean, fill = Pop),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = ISLAND, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(direction = -1) +
+  xlab("Year") + ylab("Density") + ggtitle("Am. Samoa\nHerbivore Density") +
+  facet_wrap(~ Year, scales = "fixed")
+
+
+ggsave(p.herb.pop.sam.dens, filename = "Figures/Herbs/AmSamoa_herbs_pop_dens.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+
+# filter for diversity (richness)
+herb.pop.sam.div <- herb.pop.sam  %>% 
+  filter(Response == "N.species")
+
+p.herb.pop.sam.div <- ggplot(herb.pop.sam.div) +
+    geom_bar(aes(x = ISLAND, y=pool.mean, fill = Pop),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = ISLAND, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(direction = -1) +
+  xlab("Year") + ylab("Diversity") + ggtitle("Am. Samoa\nHerbivore Richness") +
+  facet_wrap(~ Year, scales = "fixed")
+
+
+ggsave(p.herb.pop.sam.div, filename = "Figures/Herbs/AmSamoa_herbs_pop_div.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+```
+
+# Plot pop vs not with lolipops
+
+```{r}
+
+# plot biomass
+
+p.herb.pop.sam.biom <- ggplot(herb.pop.sam.biom, 
+                              aes(x= ISLAND, y=pool.mean, group = Pop)) +
+  geom_segment(aes(x=ISLAND, 
+                    xend=ISLAND, 
+                    y=0, yend=pool.mean), color="grey") +
+  geom_point(aes(color = Pop), size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("") +
+  ylab("Herbivore\nBiomass") +
+  ggtitle("Am. Samoa\nHerbivore Biomass") +
+   scale_color_viridis(direction = -1) +
+  facet_wrap(~ Year, scales = "fixed")
+
+ggsave(p.herb.pop.sam.biom, filename = "Figures/Herbs/AmSamoa_herbs_pop_biom_lol.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+# plot density 
+
+p.herb.pop.sam.dens <- ggplot(herb.pop.sam.dens, aes(x= ISLAND, y=pool.mean, group = Pop)) +
+  geom_segment(aes(x=ISLAND, 
+                    xend=ISLAND, 
+                    y=0, yend=pool.mean), color="grey") +
+  geom_point(aes(color = Pop), size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("") +
+  ggtitle("Am. Samoa\nHerbivore Density") +
+  ylab("Herbivore\nDensity") +
+   scale_color_viridis(direction = -1) +
+  facet_wrap(~ Year, scales = "fixed")
+
+ggsave(p.herb.pop.sam.dens, filename = "Figures/Herbs/AmSamoa_herbs_pop_dens_lol.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+
+
+p.herb.pop.sam.div <- ggplot(herb.pop.sam.div, aes(x= ISLAND, y=pool.mean, group = Pop)) +
+  geom_segment(aes(x=ISLAND, 
+                    xend=ISLAND, 
+                    y=0, yend=pool.mean), color="grey") +
+  geom_point(aes(color = Pop), size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("") +
+    ggtitle("Am. Samoa\nHerbivore Richness") +
+  ylab("Herbivore\nRichness") +
+   scale_color_viridis(direction = -1) +
+  facet_wrap(~ Year, scales = "fixed")
+
+ggsave(p.herb.pop.sam.div, filename = "Figures/Herbs/AmSamoa_herbs_pop_div_lol.jpg", 
+       width = 8, height = 5, dpi = 300, units = "in")
+```
+
+
+
+
+```{r}
+
+rm(list = ls(pattern = "pop"))
+
+```
+
+
+
+```{r}
+
+isl.fxn <- df %>% 
+  filter(Fish.grp == "herb_fxngrp")  %>% 
+  select(!c(TAXONNAME, Size.bin, Size)) %>% 
+  drop_na()
+
+
+isl.fxn.mar <- isl.fxn %>% 
+  filter(REGION == "MARIAN")
+
+isl.fxn.sam <- isl.fxn %>% 
+  filter(REGION == "SAMOA")
+```
+
+# Clustered by fxn group, facetted by island
+
+```{r}
+isl.fxn.mar.biom <- isl.fxn.mar %>% 
+  filter(Response == "biom_g_m2")
+
+isl.fxn.mar.dens <- isl.fxn.mar %>% 
+  filter(Response == "abund_m2")
+
+
+p.isl.fxn.mar.biom <- ggplot(isl.fxn.mar.biom, aes(fill = Year, y=pool.mean, x=Fxn.grp)) +
+    geom_bar(position = position_dodge(0.7), width = 0.7, stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Fxn.grp, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position = position_dodge(0.7), width = 0.7, stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+   ggtitle("Mariana Islands\nBiomass by Fxn Group") + ylab("Biomass (g/m2)") +
+    facet_wrap(~ ISLAND, scales = "free")
+  
+
+ggsave(p.isl.fxn.mar.biom, filename = "Figures/Herbs/Mariana_herbs_fxn_isl_biom.jpg", width = 12, height = 10, dpi = 300, units = "in")
+
+p.isl.fxn.mar.dens<- ggplot(isl.fxn.mar.dens, aes(fill = Year, y=pool.mean, x=Fxn.grp)) +
+    geom_bar(position = position_dodge(0.7), width = 0.7, stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Fxn.grp, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position = position_dodge(0.7), width = 0.7, stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+     ggtitle("Mariana Islands\nDensity by Fxn Group") + ylab("Abund / m2)") +
+    facet_wrap(~ ISLAND, scales = "free")
+
+ggsave(p.isl.fxn.mar.dens, filename = "Figures/Herbs/Mariana_herbs_fxn_isl_dens.jpg", width = 12, height = 10, dpi = 300, units = "in")
+```
+
+# Repeat for Am Samoa
+```{r}
+isl.fxn.sam.biom <- isl.fxn.sam %>% 
+  filter(Response == "biom_g_m2")
+
+isl.fxn.sam.dens <- isl.fxn.sam %>% 
+  filter(Response == "abund_m2")
+
+
+p.isl.fxn.sam.biom <- ggplot(isl.fxn.sam.biom, aes(fill = Year, y=pool.mean, x=Fxn.grp)) +
+    geom_bar(position = position_dodge(0.7), width = 0.7, stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Fxn.grp, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position = position_dodge(0.7), width = 0.7, stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+   ggtitle("Am Samoa\nBiomass by Fxn Group") + ylab("Biomass (g/m2)") +
+    facet_wrap(~ ISLAND, scales = "free")
+  
+
+ggsave(p.isl.fxn.sam.biom, filename = "Figures/Herbs/AmSamoa_herbs_fxn_isl_biom.jpg", width = 12, height = 10, dpi = 300, units = "in")
+
+p.isl.fxn.sam.dens<- ggplot(isl.fxn.sam.dens, aes(fill = Year, y=pool.mean, x=Fxn.grp)) +
+    geom_bar(position = position_dodge(0.7), width = 0.7, stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Fxn.grp, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position = position_dodge(0.7), width = 0.7, stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  ggtitle("Am Samoa\nDensity by Fxn Group") + ylab("Abund / m2)") +
+    facet_wrap(~ ISLAND, scales = "free")
+
+ggsave(p.isl.fxn.sam.dens, filename = "Figures/Herbs/AmSamoa_herbs_fxn_isl_dens.jpg", width = 12, height = 10, dpi = 300, units = "in")
+```
+

@@ -1,0 +1,390 @@
+---
+title: "02.2-Size-Obs"
+author: "Kurt Ingeman"
+date: "5/27/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Libraries
+
+```{r}
+library(here)
+library(tidyverse)
+library(ggplot2)
+library(rlang)
+library(hrbrthemes)
+
+```
+
+# Clear Environment
+
+```{r}
+rm(list = ls())
+```
+
+# Read in data and format
+
+```{r}
+
+df <- readRDS("~/github/JCR-FMP/Data/Raw/Strata/priorityspp.size.meancount.site.strataN2.rds") %>% 
+  filter(mean.count > 0) %>% 
+  mutate(TL = as.numeric(Size_cmTL)) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  mutate(index.count = 4* mean.count) %>% 
+  select(-mean.count) %>% 
+  uncount(index.count)
+
+df$TAXONNAME <- as.factor(recode(df$TAXONNAME, "Chlorurus spilurus/sordidus" = "Chlorurus spilurus")) 
+df$ISLAND <- droplevels(df$ISLAND)
+
+
+df <- df %>% 
+  mutate(Year = as.factor(OBS_YEAR)) %>% 
+  group_by(REGION, Year) %>% 
+  mutate(mu_reg_year = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup() %>% 
+  group_by(ISLAND, Year) %>% 
+  mutate(mu_isl_year = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup() %>% 
+  group_by(TAXONNAME, Year) %>% 
+  mutate(mu_spp_year = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup()
+
+
+df.mar <- df %>% 
+  filter(REGION == "MARIAN")  %>% 
+  mutate(Pop_Unpop = case_when(ISLAND == "Guam" ~ "Pop", 
+                               ISLAND == "Saipan" ~ "Pop", 
+                               ISLAND == "Tinian" ~ "Pop", 
+                               ISLAND == "Rota" ~ "Pop", 
+                               TRUE ~ "Un")) %>% 
+  mutate(ISLAND = factor(ISLAND, levels = c("Guam", "Saipan", "Tinian", "Rota", "Aguijan", "AGS", "Pagan", "Agrihan", "Asuncion", "Maug", "Farallon de Pajaros"))) %>% 
+  group_by(Pop_Unpop, TAXONNAME) %>% 
+  mutate(mu_pop_spp = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup()
+  
+
+df.sam <- df %>% 
+  filter(REGION == "SAMOA") %>% 
+    mutate(Pop_Grad = case_when(ISLAND == "Tutuila" ~ "High", 
+                         ISLAND == "Tau" ~ "Mid", 
+                         ISLAND == "Ofu & Olosega" ~ "Mid", 
+                         TRUE ~ "Low")) %>% 
+  mutate(ISLAND = factor(ISLAND, levels = c("Tutuila", "Tau", "Ofu & Olosega", "Swains", "Rose"))) %>%
+  group_by(Pop_Grad, TAXONNAME) %>% 
+  mutate(mu_pop_spp = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup()
+
+df.sam$Pop_Grad <- factor(df.sam$Pop_Grad, levels = c("High", "Mid", "Low"))
+
+```
+
+# Region-level size structure; aggregate all species, facet by year to compare change through time
+
+```{r}
+
+size.obs.mar <- ggplot(data=df.mar, aes(x=TL, group=REGION, fill=Year)) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_reg_year, color = Year),
+             linetype = "dashed") +
+      theme_ipsum() +
+   scale_fill_viridis(discrete = TRUE, direction = -1) +
+  scale_color_viridis(discrete = TRUE, direction = -1) +
+  ggtitle("Mariana Islands, All Priority Species") +
+  xlim(0,75) +
+  facet_wrap(~Year, ncol = 1)
+
+ggsave(size.obs.mar, filename = "Figures/Size/Obs/Territory/Mariana_year.jpg", width = 6, height = 6, dpi = 300, units = "in")
+
+
+size.obs.sam <- ggplot(data=df.sam, aes(x=TL, group=REGION, fill=Year)) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_reg_year, color = Year),
+             linetype = "dashed") +
+      theme_ipsum() +
+   scale_fill_viridis(discrete = TRUE, direction = -1) +
+  scale_color_viridis(discrete = TRUE, direction = -1) +
+  ggtitle("Am Samoa, All Priority Species") +
+  xlim(0,75) +
+  facet_wrap(~Year, ncol = 1)
+
+ggsave(size.obs.sam, filename = "Figures/Size/Obs/Territory/Samoa_year.jpg", width = 6, height = 8, dpi = 300, units = "in")
+
+```
+
+```{r}
+
+rm(list = ls(pattern = "size"))
+
+```
+
+####
+#### Region-level size structure; loop through each island, facet by year to compare change through time
+####
+
+# plot for loop split by island
+```{r}
+
+mar.obs.isl <- "Figures/Size/Obs/Island/Marianas/"
+sam.obs.isl <- "Figures/Size/Obs/Island/AmSamoa/"
+
+df.mar %>% 
+  group_split(ISLAND) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=Year) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_isl_year, color = Year),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = -1) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = first(.x$ISLAND)) +
+    xlim(0,75) +
+    facet_wrap(~Year, ncol = 1) +
+    theme_ipsum() -> plot
+    ggsave(paste0(mar.obs.isl, first(.x$ISLAND), '.jpg'), plot)
+      })
+
+df.sam %>% 
+  group_split(ISLAND) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=Year) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_isl_year, color = Year),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = -1) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = first(.x$ISLAND)) +
+    xlim(0,75) +
+    facet_wrap(~Year, ncol = 1) +
+    theme_ipsum() -> plot
+    ggsave(paste0(sam.obs.isl, first(.x$ISLAND), '.jpg'), plot)
+      })
+
+
+
+
+```
+
+
+####
+#### Species-level size structure; loop through each species, facet by year to compare change through time
+####
+
+# plot for loop split by species
+```{r}
+
+mar.obs.spp <- "Figures/Size/Obs/Species/Marianas/"
+sam.obs.spp <- "Figures/Size/Obs/Species/AmSamoa/"
+
+df.mar %>% 
+  group_split(TAXONNAME) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=Year) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_spp_year, color = Year),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = -1) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = first(.x$TAXONNAME)) +
+    xlim(0,75) +
+    facet_wrap(~Year, ncol = 1) +
+    theme_ipsum() -> plot
+    ggsave(paste0(mar.obs.spp, first(.x$TAXONNAME), '.jpg'), plot)
+      })
+
+df.sam %>% 
+  group_split(TAXONNAME) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=Year) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_spp_year, color = Year),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = -1) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = first(.x$TAXONNAME)) +
+    xlim(0,75) +
+    facet_wrap(~Year, ncol = 1) +
+    theme_ipsum() -> plot
+    ggsave(paste0(sam.obs.spp, first(.x$TAXONNAME), '.jpg'), plot)
+      })
+
+```
+
+
+####
+####  Size structure of each species by populated and unpopulated 
+####
+
+
+```{r message=FALSE}
+
+mar.obs.pop.spp <- "Figures/Size/Obs/Pop/Marianas/"
+sam.obs.pop.spp <- "Figures/Size/Obs/Pop/AmSamoa/"
+
+
+df.mar %>% 
+  group_split(TAXONNAME) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=Pop_Unpop, group = Pop_Unpop) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_pop_spp, color = Pop_Unpop),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = 1) +
+    scale_color_viridis(discrete = TRUE, direction = 1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = paste(first(.x$TAXONNAME), "in Mariana Archipelago")) +
+    theme_ipsum() -> plot
+    ggsave(paste0(mar.obs.pop.spp, first(.x$TAXONNAME), '.jpg'), plot)
+      })
+
+df.sam %>% 
+  group_split(TAXONNAME) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=Pop_Grad, group = Pop_Grad) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_pop_spp, color = Pop_Grad),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = 1) +
+    scale_color_viridis(discrete = TRUE, direction = 1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = paste(first(.x$TAXONNAME), "in islands of Am Samoa")) +
+    theme_ipsum() -> plot
+    ggsave(paste0(sam.obs.pop.spp, first(.x$TAXONNAME), '.jpg'), plot)
+      })
+
+```
+
+####
+#### Species-level size structure; loop through each species, facet by depth ONLY to look for management relevant paterns 
+####
+
+```{r}
+
+df.mar <- df.mar %>% 
+  group_by(TAXONNAME, DEPTH_BIN) %>% 
+  mutate(mu_depth_spp = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup()
+
+df.mar$DEPTH_BIN <- factor(df.mar$DEPTH_BIN, levels = c("Shallow", "Mid", "Deep"))
+
+df.sam <- df.sam %>% 
+  group_by(TAXONNAME, DEPTH_BIN) %>% 
+  mutate(mu_depth_spp = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup()
+
+df.sam$DEPTH_BIN <- factor(df.sam$DEPTH_BIN, levels = c("Shallow", "Mid", "Deep"))
+
+```
+
+# plot for loop split by species
+
+```{r}
+mar.obs.depth.spp <- "Figures/Size/Obs/Depth/Marianas/"
+sam.obs.depth.spp <- "Figures/Size/Obs/Depth/AmSamoa/"
+
+df.mar %>% 
+  group_split(TAXONNAME) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=DEPTH_BIN, group = DEPTH_BIN) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_depth_spp, color = DEPTH_BIN),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = -1) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = paste(first(.x$TAXONNAME), "in Mariana Archipelago")) +
+    facet_wrap(~DEPTH_BIN, ncol = 1) +
+    theme_ipsum() -> plot
+    ggsave(paste0(mar.obs.depth.spp, first(.x$TAXONNAME), '.jpg'), plot)
+      })
+
+df.sam %>% 
+  group_split(TAXONNAME) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=DEPTH_BIN, group = DEPTH_BIN) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_depth_spp, color = DEPTH_BIN),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = -1) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = paste(first(.x$TAXONNAME), "in islands of Am Samoa")) +
+    facet_wrap(~DEPTH_BIN, ncol = 1) +
+    theme_ipsum() -> plot
+    ggsave(paste0(sam.obs.depth.spp, first(.x$TAXONNAME), '.jpg'), plot)
+      })
+
+```
+
+
+
+####
+#### Species-level size structure; loop through each species, facet by depth AND year to look for management relevant paterns 
+####
+
+```{r}
+
+df.mar <- df.mar %>% 
+  group_by(TAXONNAME, DEPTH_BIN, Year) %>% 
+  mutate(mu_depth_spp_yr = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup() %>% ungroup()
+
+df.mar$DEPTH_BIN <- factor(df.mar$DEPTH_BIN, levels = c("Shallow", "Mid", "Deep"))
+
+df.sam <- df.sam %>% 
+  group_by(TAXONNAME, DEPTH_BIN, Year) %>% 
+  mutate(mu_depth_spp_yr = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% ungroup() %>% ungroup()
+
+df.sam$DEPTH_BIN <- factor(df.sam$DEPTH_BIN, levels = c("Shallow", "Mid", "Deep"))
+
+```
+
+# plot for loop split by species
+
+```{r}
+mar.obs.depth.spp.yr <- "Figures/Size/Obs/Depth/Marianas/DepthByYear/"
+sam.obs.depth.spp.yr <- "Figures/Size/Obs/Depth/AmSamoa/DepthByYear/"
+
+df.mar %>% 
+  group_split(TAXONNAME) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=DEPTH_BIN, group = DEPTH_BIN) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_depth_spp_yr, color = DEPTH_BIN),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = -1) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = paste(first(.x$TAXONNAME), "in Mariana Archipelago")) +
+    facet_grid(DEPTH_BIN ~ Year) +
+    theme_ipsum() -> plot
+    ggsave(paste0(mar.obs.depth.spp.yr, first(.x$TAXONNAME), '.jpg'), plot)
+      })
+
+df.sam %>% 
+  group_split(TAXONNAME) %>%
+  map(~{ggplot(.x) + aes(x=TL, fill=DEPTH_BIN, group = DEPTH_BIN) +
+    geom_density(adjust=1.5, alpha=.4) +
+    geom_vline(aes(xintercept = mu_depth_spp_yr, color = DEPTH_BIN),
+             linetype = "dashed") +
+    scale_fill_viridis(discrete = TRUE, direction = -1) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+    labs(x = "TL",
+    y = "Frequency",
+    title = paste(first(.x$TAXONNAME), "in islands of Am Samoa")) +
+    facet_grid(DEPTH_BIN ~ Year) +
+    theme_ipsum() -> plot
+    ggsave(paste0(sam.obs.depth.spp.yr, first(.x$TAXONNAME), '.jpg'), plot)
+      })
+
+```
+

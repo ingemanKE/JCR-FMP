@@ -1,0 +1,415 @@
+---
+title: "02.1-Size-by-Island"
+author: "Kurt Ingeman"
+date: "5/27/2022"
+output: html_document
+---
+
+---
+title: "02-Size-Structure"
+author: "Kurt Ingeman"
+date: "5/10/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Libraries
+
+```{r}
+library(here)
+library(tidyverse)
+library(ggplot2)
+library(rlang)
+library(hrbrthemes)
+library(scales)
+library(gridExtra)
+library(cowplot)
+library(viridis)
+
+```
+
+
+
+# Clear Environment
+
+```{r}
+rm(list = ls())
+```
+
+# Define palettes and directories
+```{r}
+# guam (blue, red, green, yellow, light blue)
+proj.pal <- c("#0072B2","#F0E442","#CC79A7", "#009E73",  "#E69F00", "#D55E00", "#999999")
+
+proj.dir <- "/Users/kurtingeman/github/JCR-FMP/"
+
+```
+
+
+# Read data for territorial-scale size structure through time (not segregated by depth)
+
+```{r}
+isl <- read.csv(here("Data", "Raw", "Island", "island.estimates.csv")) %>% 
+  filter(Fish.grp == "priority" & pool.mean > 0) %>% 
+  select(!Fxn.grp) %>% 
+  mutate(Year = as.factor(OBS_YEAR))
+
+isl$TAXONNAME <- as.factor(recode(isl$TAXONNAME, "Chlorurus spilurus/sordidus" = "Chlorurus spilurus")) 
+
+isl$ISLAND <- as.factor(recode(isl$ISLAND, "Farallon de Pajaros" = "FdP")) 
+isl$ISLAND <- as.factor(recode(isl$ISLAND, "Ofu & Olosega" = "Ofu_Olosega")) 
+isl$ISLAND <- as.factor(recode(isl$ISLAND, "South Bank" = "SouthBank")) 
+
+unique(isl$ISLAND)
+
+# split by bin width and relevel
+isl5 <- isl %>% filter(Size.bin == "5 cmTL") %>% 
+ mutate(Size = factor(Size, levels = c("[0,5]", "(5,10]", "(10,15]", "(15,20]", "(20,25]", "(25,30]", "(30,35]", "(35,40]", "(40,45]", "(45,50]", "(50,55]", "(55,60]", "(60,65]", "(65,70]", "(70,75]", "(75,80]", "(80,85]", "(85,90]", "(90,95]", "(95,100]", "(105,110]", "(120,125]", "(125,130]","(135,140]")))
+
+
+# Split by region and remove species from other region
+mar5 <- isl5 %>% filter(REGION == "MARIAN")
+mar5$TAXONNAME <-  droplevels(mar5$TAXONNAME)
+
+sam5 <- isl5 %>% filter(REGION == "SAMOA")
+sam5$TAXONNAME <-  droplevels(sam5$TAXONNAME)
+
+```
+
+
+# Fucntion for clustered barplots of 5cm faceted by island
+
+```{r}
+
+clust.isl <-  function(data, title) {
+  ggplot(data) +
+    geom_bar(aes(fill = as.character(Year), y=pool.mean, x=Size),  position="dodge", stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Size, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se, group = as.character(Year)), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  scale_fill_viridis(direction = -1, discrete = T, name="Year") +
+  xlab("Size bin (TL)") + ylab("Pooled mean biomass") + ggtitle(title)
+}
+
+# Need to loop through species and islands but can't split twice
+# clunky solution = create 11 df and split each by species then run 
+
+```
+
+
+
+```{r}
+# Set working directory to split species into island folders
+
+proj.dir <- "/Users/kurtingeman/github/JCR-FMP/"
+mar.size.isl.dir <- "Figures/Size/Weighted/Island/"
+
+# split df by islands
+for(i in unique(mar5$ISLAND)) {
+        nam <- paste("df", i, sep = ".")
+        assign(nam, mar5[mar5$ISLAND==i,])
+}
+
+
+df.Agrihan$TAXONNAME <-  droplevels(df.Agrihan$TAXONNAME)
+df.AGS$TAXONNAME <-  droplevels(df.AGS$TAXONNAME)
+df.Aguijan$TAXONNAME <-  droplevels(df.Aguijan$TAXONNAME)
+df.Asuncion$TAXONNAME <-  droplevels(df.Asuncion$TAXONNAME)
+df.FdP$TAXONNAME <-  droplevels(df.FdP$TAXONNAME)
+df.Guam$TAXONNAME <-  droplevels(df.Guam$TAXONNAME)
+df.Maug$TAXONNAME <-  droplevels(df.Maug$TAXONNAME)
+df.Pagan$TAXONNAME <-  droplevels(df.Pagan$TAXONNAME)
+df.Saipan$TAXONNAME <-  droplevels(df.Saipan$TAXONNAME)
+df.Rota$TAXONNAME <-  droplevels(df.Rota$TAXONNAME)
+df.Tinian$TAXONNAME <-  droplevels(df.Tinian$TAXONNAME)
+
+#Split islands by species 
+
+df.Agrihan.spp <- split(df.Agrihan, df.Agrihan$TAXONNAME)
+df.AGS.spp <- split(df.AGS, df.AGS$TAXONNAME)
+df.Aguijan.spp <- split(df.Aguijan, df.Aguijan$TAXONNAME)
+df.Asuncion.spp <- split(df.Asuncion, df.Asuncion$TAXONNAME)
+df.FdP.spp <- split(df.FdP, df.FdP$TAXONNAME)
+df.Guam.spp <- split(df.Guam, df.Guam$TAXONNAME)
+df.Maug.spp <- split(df.Maug, df.Maug$TAXONNAME)
+df.Pagan.spp <- split(df.Pagan, df.Agrihan$TAXONNAME)
+df.Saipan.spp <- split(df.Saipan, df.Saipan$TAXONNAME)
+df.Rota.spp <- split(df.Rota, df.Rota$TAXONNAME)
+df.Tinian.spp <- split(df.Tinian, df.Tinian$TAXONNAME)
+
+
+# For loop to create plots for each species in folders by island
+
+for (i in 1:length(df.Agrihan.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Agrihan")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Agrihan.spp[[i]], title = paste(names(df.Agrihan.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Agrihan.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+
+```
+
+
+# AGS
+```{r}
+for (i in 1:length(df.AGS.spp)) {
+        folder <- paste0(mar.size.isl.dir, "AGS")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.AGS.spp[[i]], title = paste(names(df.AGS.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.AGS.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# Aguijan
+```{r}
+
+for (i in 1:length(df.Aguijan.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Aguijan")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Aguijan.spp[[i]], title = paste(names(df.Aguijan.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Aguijan.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+
+```
+
+# Asuncion
+```{r}
+
+for (i in 1:length(df.Asuncion.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Asuncion")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Asuncion.spp[[i]], title = paste(names(df.Asuncion.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Asuncion.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+
+
+```
+
+# FdP
+```{r}
+for (i in 1:length(df.FdP.spp)) {
+        folder <- paste0(mar.size.isl.dir, "FdP")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.FdP.spp[[i]], title = paste(names(df.FdP.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.FdP.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+
+```
+
+
+# Guam
+```{r}
+for (i in 1:length(df.Guam.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Guam")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Guam.spp[[i]], title = paste(names(df.Guam.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Guam.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# Maug
+
+```{r}
+for (i in 1:length(df.Maug.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Maug")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Maug.spp[[i]], title = paste(names(df.Maug.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Maug.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# Pagan 
+```{r}
+for (i in 1:length(df.Pagan.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Pagan")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Pagan.spp[[i]], title = paste(names(df.Pagan.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Pagan.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# Rota
+
+```{r}
+for (i in 1:length(df.Rota.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Rota")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Rota.spp[[i]], title = paste(names(df.Rota.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Rota.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# Saipan
+
+```{r}
+for (i in 1:length(df.Saipan.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Saipan")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Saipan.spp[[i]], title = paste(names(df.Saipan.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Saipan.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# Tinian
+
+```{r}
+for (i in 1:length(df.Tinian.spp)) {
+        folder <- paste0(mar.size.isl.dir, "Tinian")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Tinian.spp[[i]], title = paste(names(df.Tinian.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Tinian.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+
+####
+#### Repeat for Am Samoa
+####
+
+
+```{r}
+
+sam.size.isl.dir <- "Figures/Size/Weighted/Island/AmSamoa/"
+
+# split df by islands
+for(i in unique(sam5$ISLAND)) {
+        nam <- paste("df", i, sep = ".")
+        assign(nam, sam5[sam5$ISLAND==i,])
+}
+
+
+unique(sam5$ISLAND)
+
+df.Tutuila$TAXONNAME <-  droplevels(df.Tutuila$TAXONNAME)
+df.Tau$TAXONNAME <-  droplevels(df.Tau$TAXONNAME)
+df.SouthBank$TAXONNAME <-  droplevels(df.SouthBank$TAXONNAME)
+df.Rose$TAXONNAME <-  droplevels(df.Rose$TAXONNAME)
+df.Ofu_Olosega$TAXONNAME <-  droplevels(df.Ofu_Olosega$TAXONNAME)
+df.Swains$TAXONNAME <-  droplevels(df.Swains$TAXONNAME)
+
+
+#Split islands by species 
+
+df.Tutuila.spp <- split(df.Tutuila, df.Tutuila$TAXONNAME)
+df.Tau.spp <- split(df.Tau, df.Tau$TAXONNAME)
+df.SouthBank.spp <- split(df.SouthBank, df.SouthBank$TAXONNAME)
+df.Rose.spp <- split(df.Rose, df.Rose$TAXONNAME)
+df.Ofu_Olosega.spp <- split(df.Ofu_Olosega, df.Ofu_Olosega$TAXONNAME)
+df.Swains.spp <- split(df.Swains, df.Swains$TAXONNAME)
+
+
+
+# For loop to create plots for each species in folders by island
+
+for (i in 1:length(df.Tutuila.spp)) {
+        folder <- paste0(sam.size.isl.dir, "Tutuila")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Tutuila.spp[[i]], title = paste(names(df.Tutuila.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Tutuila.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# O and O
+```{r}
+for (i in 1:length(df.Ofu_Olosega.spp)) {
+        folder <- paste0(sam.size.isl.dir, "Ofu_Olosega")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Ofu_Olosega.spp[[i]], title = paste(names(df.Ofu_Olosega.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Ofu_Olosega.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# Tau
+```{r}
+for (i in 1:length(df.Tau.spp)) {
+        folder <- paste0(sam.size.isl.dir, "Tau")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Tau.spp[[i]], title = paste(names(df.Tau.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Tau.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+
+# Swains
+```{r}
+for (i in 1:length(df.Swains.spp)) {
+        folder <- paste0(sam.size.isl.dir, "Swains")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Swains.spp[[i]], title = paste(names(df.Swains.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Swains.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# Rose
+```{r}
+for (i in 1:length(df.Rose.spp)) {
+        folder <- paste0(sam.size.isl.dir, "Rose")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.Rose.spp[[i]], title = paste(names(df.Rose.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.Rose.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
+
+# South Bank
+```{r}
+for (i in 1:length(df.SouthBank.spp)) {
+        folder <- paste0(sam.size.isl.dir, "SouthBank")
+        if (!dir.exists(folder)) {dir.create(folder)}
+      setwd(folder)
+          p = clust.isl(data = df.SouthBank.spp[[i]], title = paste(names(df.SouthBank.spp)[i], "5cm bins"))
+          ggsave(filename = paste("Clust Bars ", names(df.SouthBank.spp)[i], ".jpg", sep=""), width = 6, height = 8)
+          setwd(proj.dir)
+          
+}
+```
