@@ -40,17 +40,28 @@ proj.pal <- c("#0072B2","#F0E442","#CC79A7", "#009E73",  "#E69F00", "#D55E00", "
 df <- read.csv(here("Data", "Raw", "Juris", "juris.estimates.csv")) %>% 
   mutate(Year = as.factor(OBS_YEAR))
 
+guam <- read.csv(here("Data", "Raw", "Island", "island.estimates.csv")) %>% 
+  mutate(Year = as.factor(OBS_YEAR)) %>% 
+  filter(ISLAND == "Guam")
+
 str(df)
 
 herb.all <- df %>% 
   filter(Fish.grp == "herb_all") %>% 
   filter(!Fish.grp == "priority")
 
+guam.all <- guam %>%
+  filter(Fish.grp == "herb_all") %>% 
+  filter(!Fish.grp == "priority")
+
+
 herb.mar.all <- herb.all %>% 
   filter(!REGION == "SAMOA")
 
 herb.sam.all <- herb.all %>% 
   filter(REGION == "SAMOA")
+
+
 
 ```
 
@@ -70,6 +81,20 @@ p.herb.all.mar <- ggplot(herb.mar.all) +
   facet_wrap(~ Response, scales = "free")
 
  ggsave(p.herb.all.mar, filename = "Figures/Herbs/Mariana_herbs_all.jpg", width = 6, height = 4, dpi = 300, units = "in")
+ 
+ ## Guam
+ 
+ p.herb.all.guam <- ggplot(guam.all) +
+    geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  xlab("Year") + ggtitle("Guam") +
+  facet_wrap(~ Response, scales = "free")
+
+ ggsave(p.herb.all.guam, filename = "Figures/Herbs/Guam_herbs_all.jpg", width = 6, height = 4, dpi = 300, units = "in")
 
 ```
 
@@ -108,6 +133,9 @@ rm(list = ls(pattern = ".all"))
 herb.fxn <- df %>% 
   filter(Fish.grp == "herb_fxngrp")
 
+guam.fxn <- guam %>% 
+  filter(Fish.grp == "herb_fxngrp")
+
 herb.fxn.mar <- herb.fxn %>% 
   filter(REGION == "MARIAN")
 
@@ -131,6 +159,20 @@ p.herb.fxn.mar <- ggplot(herb.fxn.mar, aes(fill = Fxn.grp, y=pool.mean, x=Year))
   
 
  ggsave(p.herb.fxn.mar, filename = "Figures/Herbs/Mariana_herbs_fxn_yr.jpg", width = 7, height = 3, dpi = 300, units = "in")
+ 
+## Guam 
+ 
+ p.herb.fxn.guam <- ggplot(guam.fxn, aes(fill = Fxn.grp, y=pool.mean, x=Year)) +
+    geom_bar(position="dodge", stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Year, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position="dodge", stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = proj.pal, name="Fuctional\nGroup") +
+    facet_wrap(~ Response, scales = "free")
+  
+
+ ggsave(p.herb.fxn.guam, filename = "Figures/Herbs/Guam_herbs_fxn_yr.jpg", width = 7, height = 3, dpi = 300, units = "in")
 
 
 p.herb.fxn.sam <- ggplot(herb.fxn.sam, aes(fill = Fxn.grp, y=pool.mean, x=Year)) +
@@ -164,7 +206,21 @@ p.herb.fxn.mar.grp <- ggplot(herb.fxn.mar, aes(fill = Year, y=pool.mean, x=Fxn.g
   
 
  ggsave(p.herb.fxn.mar.grp, filename = "Figures/Herbs/Mariana_herbs_fxn_grp.jpg", width = 7, height = 3, dpi = 300, units = "in")
+ 
+ ## Guam
+ p.herb.fxn.guam.grp <- ggplot(guam.fxn, aes(fill = Year, y=pool.mean, x=Fxn.grp)) +
+    geom_bar(position = position_dodge(0.7), width = 0.7, stat="identity", alpha = 0.8) +
+    geom_errorbar(aes(x=Fxn.grp, ymin=pool.mean - pool.se, ymax = pool.mean + pool.se), 
+                  position = position_dodge(0.7), width = 0.7, stat="identity", size = 0.3) +
+   theme_ipsum() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+    facet_wrap(~ Response, scales = "free")
+  
 
+ ggsave(p.herb.fxn.guam.grp, filename = "Figures/Herbs/Guam_herbs_fxn_grp.jpg", width = 7, height = 3, dpi = 300, units = "in")
+
+ ## Samoa
 
 p.herb.fxn.sam.grp <- ggplot(herb.fxn.sam, aes(fill = Year, y=pool.mean, x=Fxn.grp)) +
     geom_bar(position = position_dodge(0.7), width = 0.7, stat="identity", alpha = 0.8) +

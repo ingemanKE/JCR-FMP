@@ -17,6 +17,7 @@ library(tidyverse)
 library(ggplot2)
 library(rlang)
 library(hrbrthemes)
+library(viridis)
 
 ```
 
@@ -121,6 +122,133 @@ ggsave(size.obs.sam, filename = "Figures/Size/Obs/Territory/Samoa_year.jpg", wid
 rm(list = ls(pattern = "size"))
 
 ```
+
+####
+#### Species-level size structure; facet by species and aggregate across time and island
+####
+
+```{r}
+
+df.mar <- df.mar %>% 
+  group_by(TAXONNAME) %>% 
+  mutate(mu_spp = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% 
+  filter(!is.na(TAXONNAME)) %>% 
+  mutate(TAXONNAME = fct_reorder(TAXONNAME, mu_spp))
+
+df.guam <- df.mar %>% 
+  filter(ISLAND == "Guam") %>% 
+  group_by(TAXONNAME) %>% 
+  mutate(mu_spp_guam = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% 
+  filter(!is.na(TAXONNAME)) %>% 
+  mutate(TAXONNAME = fct_reorder(TAXONNAME, mu_spp_guam))
+
+df.sam <- df.sam %>% 
+  group_by(TAXONNAME) %>% 
+  mutate(mu_spp = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% 
+  filter(!is.na(TAXONNAME)) %>% 
+  mutate(TAXONNAME = fct_reorder(TAXONNAME, mu_spp))
+
+p.size.obs.guam.spp <- ggplot(data=df.guam, aes(x=TL, group=TAXONNAME, fill=mu_spp_guam), show.legend = F) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_spp_guam),
+             linetype = "dashed", show.legend = F) +
+    scale_fill_viridis(direction = -1, ) +
+  xlim(0,150) +
+  theme_bw() +
+   theme(legend.position="none") +
+  facet_wrap(TAXONNAME ~ ., scales = "free")
+
+ggsave(p.size.obs.guam.spp, filename = "Figures/Size/Obs/Species/Guam_spp.jpg", width = 12, height = 9, dpi = 300, units = "in")
+
+
+p.size.obs.mar.spp <- ggplot(data=df.mar, aes(x=TL, group=TAXONNAME, fill=mu_spp), show.legend = F) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_spp),
+             linetype = "dashed", show.legend = F) +
+    scale_fill_viridis(direction = -1, ) +
+  xlim(0,150) +
+  theme_bw() +
+   theme(legend.position="none") +
+  facet_wrap(TAXONNAME ~ ., scales = "free")
+
+
+ggsave(p.size.obs.mar.spp, filename = "Figures/Size/Obs/Species/Mariana_spp.jpg", width = 12, height = 9, dpi = 300, units = "in")
+
+## Samoa
+p.size.obs.sam.spp <- ggplot(data=df.sam, aes(x=TL, group=TAXONNAME, fill=mu_spp), show.legend = F) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_spp),
+             linetype = "dashed", show.legend = F) +
+    scale_fill_viridis(direction = -1, ) +
+  xlim(0,110) +
+  theme_bw() +
+   theme(legend.position="none") +
+  facet_wrap(TAXONNAME ~ ., scales = "free")
+
+
+ggsave(p.size.obs.sam.spp, filename = "Figures/Size/Obs/Species/AmSamoa_spp.jpg", width = 12, height = 8, dpi = 300, units = "in")
+
+
+```
+
+
+
+####
+#### Island-level size structure; facet by island and aggregate across time and species
+####
+
+```{r}
+
+df.mar <- df.mar %>% 
+  group_by(ISLAND) %>% 
+  mutate(mu_isl = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% 
+  filter(!is.na(ISLAND)) %>% 
+  mutate(ISLAND = fct_reorder(ISLAND, mu_isl))
+
+df.sam <- df.sam %>% 
+  group_by(ISLAND) %>% 
+  mutate(mu_isl = mean(TL, na.rm=TRUE)) %>%
+  ungroup() %>% 
+  filter(!is.na(ISLAND)) %>% 
+  mutate(ISLAND = factor(ISLAND, levels = c("Tutuila", "Tau", "Ofu & Olosega", "Rose", "Swains")))
+
+p.size.obs.mar.isl <-  ggplot(data=df.mar, aes(x=TL, group=ISLAND, fill=Pop_Unpop)) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_isl),
+             linetype = "dashed", show.legend = F) +
+    scale_fill_viridis(discrete = TRUE, direction = -1, ) +
+  guides(fill=guide_legend(title="Population level")) +
+  xlim(0,60) +
+   theme_bw() +
+  facet_grid(ISLAND ~ .)
+
+
+ggsave(p.size.obs.mar.isl, filename = "Figures/Size/Obs/Island/Mariana_isl.jpg", width = 8, height = 12, dpi = 300, units = "in")
+
+
+p.size.obs.sam.isl <-  ggplot(data=df.sam, aes(x=TL, group=ISLAND, fill=Pop_Grad)) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_isl, color = Pop_Grad),
+             linetype = "dashed", show.legend = F) +
+    scale_fill_viridis(discrete = TRUE, direction = -1, ) +
+    scale_color_viridis(discrete = TRUE, direction = -1) +
+  guides(fill=guide_legend(title="Population level")) +
+  xlim(0,80) +
+   theme_bw() +
+  facet_grid(ISLAND ~ .)
+
+
+ggsave(p.size.obs.sam.isl, filename = "Figures/Size/Obs/Island/Samoa_isl.jpg", width = 6, height = 8, dpi = 300, units = "in")
+
+```
+
+
+
+
 
 ####
 #### Region-level size structure; loop through each island, facet by year to compare change through time
