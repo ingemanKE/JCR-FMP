@@ -58,11 +58,11 @@ df <- df %>%
 
 df.mar <- df %>% 
   filter(REGION == "MARIAN")  %>% 
-  mutate(Pop_Unpop = case_when(ISLAND == "Guam" ~ "Pop", 
-                               ISLAND == "Saipan" ~ "Pop", 
-                               ISLAND == "Tinian" ~ "Pop", 
-                               ISLAND == "Rota" ~ "Pop", 
-                               TRUE ~ "Un")) %>% 
+  mutate(Pop_Unpop = case_when(ISLAND == "Guam" ~ "Populated", 
+                               ISLAND == "Saipan" ~ "Populated", 
+                               ISLAND == "Tinian" ~ "Populated", 
+                               ISLAND == "Rota" ~ "Populated", 
+                               TRUE ~ "Unpopulated")) %>% 
   mutate(ISLAND = factor(ISLAND, levels = c("Guam", "Saipan", "Tinian", "Rota", "Aguijan", "AGS", "Pagan", "Agrihan", "Asuncion", "Maug", "Farallon de Pajaros"))) %>% 
   group_by(Pop_Unpop, TAXONNAME) %>% 
   mutate(mu_pop_spp = mean(TL, na.rm=TRUE)) %>%
@@ -220,14 +220,16 @@ p.size.obs.mar.isl <-  ggplot(data=df.mar, aes(x=TL, group=ISLAND, fill=Pop_Unpo
     geom_density(adjust=1.5, alpha=.4) +
   geom_vline(aes(xintercept = mu_isl),
              linetype = "dashed", show.legend = F) +
-    scale_fill_viridis(discrete = TRUE, direction = -1, ) +
+    scale_fill_viridis(discrete = TRUE, direction = 1, ) +
   guides(fill=guide_legend(title="Population level")) +
+  ggtitle("Average size:\nPriority Species") +
   xlim(0,60) +
-   theme_bw() +
+  theme_bw() +
+  theme(legend.title=element_blank()) +
   facet_grid(ISLAND ~ .)
 
 
-ggsave(p.size.obs.mar.isl, filename = "Figures/Size/Obs/Island/Mariana_isl.jpg", width = 8, height = 12, dpi = 300, units = "in")
+ggsave(p.size.obs.mar.isl, filename = "Figures/Size/Obs/Island/Mariana_isl.jpg", width = 8, height = 10, dpi = 300, units = "in")
 
 
 p.size.obs.sam.isl <-  ggplot(data=df.sam, aes(x=TL, group=ISLAND, fill=Pop_Grad)) +
