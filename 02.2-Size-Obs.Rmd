@@ -42,6 +42,22 @@ df <- readRDS("~/github/JCR-FMP/Data/Raw/Strata/priorityspp.size.meancount.site.
 df$TAXONNAME <- as.factor(recode(df$TAXONNAME, "Chlorurus spilurus/sordidus" = "Chlorurus spilurus")) 
 df$ISLAND <- droplevels(df$ISLAND)
 
+df.TL.mar <- df %>% 
+  filter(REGION == "MARIAN")  %>% 
+  mutate(Year = as.factor(OBS_YEAR)) %>%
+  group_by(TAXONNAME) %>% 
+  summarise(mu_SPP = mean(TL, na.rm=TRUE), 
+            max_spp = max(TL)) 
+
+df.TL.guam <- df %>% 
+  filter(ISLAND == "Guam")  %>% 
+  mutate(Year = as.factor(OBS_YEAR)) %>%
+  group_by(TAXONNAME) %>% 
+  summarise(mu_SPP = mean(TL, na.rm=TRUE), 
+            max_spp = max(TL)) 
+
+rm(list = ls(pattern = ".TL"))
+
 
 df <- df %>% 
   mutate(Year = as.factor(OBS_YEAR)) %>% 
@@ -53,7 +69,20 @@ df <- df %>%
   ungroup() %>% ungroup() %>% 
   group_by(TAXONNAME, Year) %>% 
   mutate(mu_spp_year = mean(TL, na.rm=TRUE)) %>%
-  ungroup() %>% ungroup()
+  ungroup() %>% ungroup() %>% 
+  mutate(final.spp =
+           case_when(TAXONNAME == "Acanthurus lineatus" ~ "final",
+                     TAXONNAME == "Naso lituratus" ~ "final",
+                     TAXONNAME == "Caranx melampygus" ~ "final", 
+                     TAXONNAME == "Kyphosus cinerascens" ~ "final", 
+                     TAXONNAME == "Cheilinus undulatus" ~ "final", 
+                     TAXONNAME == "Lethrinus olivaceus" ~ "final", 
+                     TAXONNAME == "Lutjanus fulvus" ~ "final", 
+                     TAXONNAME == "Chlorurus frontalis" ~ "final", 
+                     TAXONNAME == "Scarus schlegeli" ~ "final", 
+                     TAXONNAME == "Epinephelus merra" ~ "final", 
+                     TRUE ~ "initial"
+                     ))
 
 
 df.mar <- df %>% 
@@ -136,6 +165,9 @@ df.mar <- df.mar %>%
   filter(!is.na(TAXONNAME)) %>% 
   mutate(TAXONNAME = fct_reorder(TAXONNAME, mu_spp))
 
+df.mar.final <- df.mar %>% 
+  filter(final.spp == "final")
+
 df.guam <- df.mar %>% 
   filter(ISLAND == "Guam") %>% 
   group_by(TAXONNAME) %>% 
@@ -143,6 +175,9 @@ df.guam <- df.mar %>%
   ungroup() %>% 
   filter(!is.na(TAXONNAME)) %>% 
   mutate(TAXONNAME = fct_reorder(TAXONNAME, mu_spp_guam))
+
+df.guam.final <- df.guam %>% 
+  filter(final.spp == "final")
 
 df.sam <- df.sam %>% 
   group_by(TAXONNAME) %>% 
@@ -162,6 +197,22 @@ p.size.obs.guam.spp <- ggplot(data=df.guam, aes(x=TL, group=TAXONNAME, fill=mu_s
   facet_wrap(TAXONNAME ~ ., scales = "free")
 
 ggsave(p.size.obs.guam.spp, filename = "Figures/Size/Obs/Species/Guam_spp.jpg", width = 12, height = 9, dpi = 300, units = "in")
+
+##
+
+p.size.obs.guam.final <- ggplot(data=df.guam.final, aes(x=TL, group=TAXONNAME, fill=mu_spp_guam), show.legend = F) +
+    geom_density(adjust=1.5, alpha=.4) +
+  geom_vline(aes(xintercept = mu_spp_guam),
+             linetype = "dashed", show.legend = F) +
+    scale_fill_viridis(direction = -1, ) +
+  xlim(0,150) +
+  theme_bw() +
+   theme(legend.position="none") +
+  facet_wrap(TAXONNAME ~ ., scales = "free")
+
+ggsave(p.size.obs.guam.final, filename = "Figures/Size/Obs/Species/Guam_spp_final.jpg", width = 12, height = 9, dpi = 300, units = "in")
+
+##
 
 
 p.size.obs.mar.spp <- ggplot(data=df.mar, aes(x=TL, group=TAXONNAME, fill=mu_spp), show.legend = F) +

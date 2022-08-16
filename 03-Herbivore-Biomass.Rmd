@@ -44,6 +44,16 @@ guam <- read.csv(here("Data", "Raw", "Island", "island.estimates.csv")) %>%
   mutate(Year = as.factor(OBS_YEAR)) %>% 
   filter(ISLAND == "Guam")
 
+mar.biom <- read.csv(here("Data", "Raw", "Island", "island.estimates.csv")) %>% 
+  mutate(Year = as.factor(OBS_YEAR)) %>% 
+    filter(!REGION == "SAMOA") %>% 
+    filter(Fish.grp == "herb_all") %>% 
+    filter(!Fish.grp == "priority") %>% 
+  filter(Response == "biom_g_m2") %>% 
+  group_by(ISLAND) %>% 
+  summarise(mu_herb_biom = mean(pool.mean))
+  
+
 str(df)
 
 herb.all <- df %>% 
@@ -279,7 +289,27 @@ isl.sam.all <- isl.all  %>%
 
 # filter for biomass
 isl.mar.all.biom <- isl.mar.all  %>% 
-  filter(Response == "biom_g_m2")
+  filter(Response == "biom_g_m2") %>% 
+  group_by(ISLAND) %>% 
+  mutate(agg.biom = mean(pool.mean), 
+         n = n(), 
+         agg.se = sd(pool.mean)/sqrt(n))
+
+
+
+p.isl.mar.agg  <- ggplot(isl.mar.all.biom) +
+    geom_bar(aes(x = reorder(ISLAND, agg.biom), y=agg.biom, 
+                 fill = reorder(ISLAND, agg.biom)),  position="dodge", stat="identity", alpha = .8) +
+    geom_errorbar(aes(x = ISLAND, ymin=agg.biom - agg.se, ymax = agg.biom + agg.se), 
+                  position="dodge", size = 0.3) +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.position = "none") +
+  scale_fill_viridis(discrete = TRUE, direction = 1) +
+  xlab("Island") + ylab("Biomass") + ggtitle("Herbivore Biomass: Mariana Islands")
+
+ ggsave(p.isl.mar.agg, filename = "Figures/Herbs/Mariana_herbs_isl_agg.jpg", width = 7, height = 7, dpi = 300, units = "in")
+
 
 p.isl.mar.all.biom  <- ggplot(isl.mar.all.biom) +
     geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
