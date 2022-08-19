@@ -244,6 +244,18 @@ p.size.obs.sam.isl <-  ggplot(data=df.sam, aes(x=TL, group=ISLAND, fill=Pop_Grad
 
 ggsave(p.size.obs.sam.isl, filename = "Figures/Size/Obs/Island/Samoa_isl.jpg", width = 6, height = 8, dpi = 300, units = "in")
 
+
+sam.pri <- df.sam %>% 
+  mutate(final.pri = case_when(TAXONNAME == "Acanthurus lineatus" ~ "pri",
+                               TAXONNAME == "Acanthurus xanthopterus" ~ "pri",
+                               TAXONNAME == "Ctenochaetus striatus" ~ "pri",
+                               TAXONNAME == "Myripristis berndti" ~ "pri",
+                               TAXONNAME == "Monotaxis grandoculis" ~ "pri",
+                               TRUE ~ "not")) %>% 
+  filter(final.pri == "pri") %>% 
+  group_by(ISLAND, TAXONNAME) %>% 
+  summarise(mu_isl = mean(TL, na.rm=TRUE))
+
 ```
 
 
