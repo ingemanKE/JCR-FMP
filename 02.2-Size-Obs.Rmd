@@ -287,8 +287,8 @@ p.size.obs.sam.isl <-  ggplot(data=df.sam, aes(x=TL, group=ISLAND, fill=Pop_Grad
     geom_density(adjust=1.5, alpha=.4) +
   geom_vline(aes(xintercept = mu_isl, color = Pop_Grad),
              linetype = "dashed", show.legend = F) +
-    scale_fill_viridis(discrete = TRUE, direction = -1, ) +
-    scale_color_viridis(discrete = TRUE, direction = -1) +
+    scale_fill_viridis(discrete = TRUE, direction = 1, ) +
+    scale_color_viridis(discrete = TRUE, direction = 1) +
   guides(fill=guide_legend(title="Population level")) +
   xlim(0,80) +
    theme_bw() +
