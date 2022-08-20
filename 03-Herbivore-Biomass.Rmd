@@ -367,7 +367,11 @@ ggsave(p.isl.mar.all.div, filename = "Figures/Herbs/Mariana_herbs_isl_div.jpg", 
 
 # filter for biomass
 isl.sam.all.biom <- isl.sam.all  %>% 
-  filter(Response == "biom_g_m2")
+  filter(Response == "biom_g_m2") %>% 
+  group_by(ISLAND) %>% 
+  summarise(agg.biom = mean(pool.mean), 
+         n = n(), 
+         agg.se = sd(pool.mean)/sqrt(n))
 
 p.isl.sam.all.biom  <- ggplot(isl.sam.all.biom) +
     geom_bar(aes(x = Year, y=pool.mean, fill = Year),  position="dodge", stat="identity", alpha = .8) +
